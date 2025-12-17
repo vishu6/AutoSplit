@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "936293939340",
+    "project_id": "autosplit-fdf12",
+    "storage_bucket": "autosplit-fdf12.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:936293939340:android:613e926d5944251ff723a9",
+        "android_client_info": {
+          "package_name": "com.autosplit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABFwAfye_3ijrnbcpZKdd0f_I2NOUFFdA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
