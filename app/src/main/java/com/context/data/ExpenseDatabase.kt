@@ -19,11 +19,15 @@ data class Expense(
 @Entity(tableName = "groups")
 data class Group(
     @PrimaryKey(autoGenerate = true) val groupId: Int = 0,
-    val name: String, 
-    val members: String, 
-    val totalSpent: Double? = 0.0, // Making this nullable
-    val createdAt: Long = System.currentTimeMillis()
-)
+    val name: String,
+    val members: String = "You",
+    val totalSpent: Double? = 0.0
+) {
+    // Helper to get list easily in code
+    fun getMemberList(): List<String> {
+        return members.split(",").filter { it.isNotBlank() }
+    }
+}
 
 @Dao
 interface ExpenseDao {
@@ -42,11 +46,15 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<Expense>>
     
-    @Query("SELECT SUM(amount) FROM expenses")
+    // CORRECTED: Ignore Settlements from total
+    @Query("SELECT SUM(amount) FROM expenses WHERE category != 'Settlement'")
     fun getTotalSpent(): Flow<Double?>
 
-    @Query("SELECT * FROM groups")
+    @Query("SELECT * FROM `groups`")
     fun getAllGroups(): Flow<List<Group>>
+
+    @Query("SELECT * FROM `groups` WHERE groupId = :id")
+    suspend fun getGroup(id: Int): Group?
 
     @Insert
     suspend fun insertGroup(group: Group): Long
@@ -54,14 +62,17 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY timestamp DESC")
     fun getExpensesForGroup(groupId: Int): Flow<List<Expense>>
     
+    // This query is no longer used directly by the UI, but let's keep it for potential future use
     @Query("SELECT SUM(amount) FROM expenses WHERE groupId = :groupId")
     fun getGroupTotal(groupId: Int): Flow<Double?>
 
-    @Query("UPDATE groups SET totalSpent = (SELECT SUM(amount) FROM expenses WHERE groupId = :groupId) WHERE groupId = :groupId")
+    // CORRECTED: Ignore Settlements when updating the group's total
+    @Query("UPDATE `groups` SET totalSpent = (SELECT SUM(amount) FROM expenses WHERE groupId = :groupId AND category != 'Settlement') WHERE groupId = :groupId")
     suspend fun recalculateGroupTotal(groupId: Int)
 }
 
-@Database(entities = [Expense::class, Group::class], version = 4) // Incremented version
+
+@Database(entities = [Expense::class, Group::class], version = 6)
 abstract class ExpenseDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
 

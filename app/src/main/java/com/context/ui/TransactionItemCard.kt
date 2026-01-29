@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -24,12 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.context.ui.theme.CategoryStyle
 import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ContextTheme
-import com.context.ui.theme.FintechGreen
-import com.context.ui.theme.FintechRed
 
-// --- DATA ---
 enum class TransactionType { EXPENSE, CREDIT }
 enum class TransactionSource { MANUAL, AUTO_DETECTED }
 
@@ -38,19 +38,22 @@ data class TransactionDetails(
     val dateTime: String,
     val amount: String,
     val type: TransactionType,
-    val category: String, // Updated to String
-    val source: TransactionSource
+    val category: String,
+    val source: TransactionSource,
+    val isAuto: Boolean // Add isAuto to the UI model
 )
-
-// --- COMPOSABLE ---
 
 @Composable
 fun TransactionItemCard(transaction: TransactionDetails) {
-    val amountColor = if (transaction.type == TransactionType.EXPENSE) FintechRed else FintechGreen
-    val amountPrefix = if (transaction.type == TransactionType.EXPENSE) "-" else "+"
+    val isSettlement = transaction.category == "Settlement"
 
-    // Get style dynamically from the CategoryStyling object
-    val categoryStyle = CategoryStyling.getStyle(transaction.category)
+    val categoryStyle = if (isSettlement) {
+        CategoryStyle(color = Color(0xFFE8F5E9), icon = Icons.Default.CheckCircle) // Green theme
+    } else {
+        CategoryStyling.getStyle(transaction.category)
+    }
+
+    val amountColor = if (isSettlement) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -62,47 +65,32 @@ fun TransactionItemCard(transaction: TransactionDetails) {
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // The Category Icon Box
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = categoryStyle.color, // Dynamic Color
+                color = categoryStyle.color,
                 modifier = Modifier.size(48.dp)
             ) {
                 Icon(
-                    imageVector = categoryStyle.icon, // Dynamic Icon
+                    imageVector = categoryStyle.icon,
                     contentDescription = transaction.category,
-                    tint = Color.Black.copy(alpha = 0.7f),
+                    tint = if (isSettlement) Color(0xFF2E7D32) else Color.Black.copy(alpha = 0.7f),
                     modifier = Modifier.padding(12.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Center: Merchant and Date
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = transaction.merchant,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = transaction.dateTime,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
+            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(text = transaction.merchant, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(text = if (isSettlement) "Repayment" else transaction.dateTime, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Right Side: Amount and Chip
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "$amountPrefix₹${transaction.amount}",
+                    text = (if (isSettlement) "+ " else "") + "₹${transaction.amount}",
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
-                    color = amountColor,
-                    fontSize = 16.sp
+                    color = amountColor
                 )
-                if (transaction.source == TransactionSource.AUTO_DETECTED) {
+                if (transaction.source == TransactionSource.AUTO_DETECTED && !isSettlement) {
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = RoundedCornerShape(4.dp),
@@ -121,8 +109,6 @@ fun TransactionItemCard(transaction: TransactionDetails) {
     }
 }
 
-// --- PREVIEWS ---
-
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
 @Composable
 fun TransactionItemCardPreview() {
@@ -131,23 +117,25 @@ fun TransactionItemCardPreview() {
         dateTime = "Today, 10:30 AM",
         amount = "250",
         type = TransactionType.EXPENSE,
-        category = "Food & Drink", // Using String
-        source = TransactionSource.AUTO_DETECTED
+        category = "Food & Drink",
+        source = TransactionSource.AUTO_DETECTED,
+        isAuto = true
     )
 
-    val travelCredit = TransactionDetails(
-        merchant = "Uber",
+    val settlement = TransactionDetails(
+        merchant = "Payment from Alex",
         dateTime = "Yesterday, 5:45 PM",
-        amount = "210",
-        type = TransactionType.CREDIT,
-        category = "Transport", // Using String
-        source = TransactionSource.MANUAL
+        amount = "500",
+        type = TransactionType.CREDIT, // This can be simplified
+        category = "Settlement",
+        source = TransactionSource.MANUAL,
+        isAuto = false
     )
     
     ContextTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             TransactionItemCard(transaction = foodExpense)
-            TransactionItemCard(transaction = travelCredit)
+            TransactionItemCard(transaction = settlement)
         }
     }
 }

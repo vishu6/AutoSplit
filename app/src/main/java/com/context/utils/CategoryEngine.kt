@@ -22,7 +22,7 @@ object CategoryEngine {
     // The "Brain" - Map keywords to Categories
     private val KEYWORD_MAP = mapOf(
         // Food
-        "food" to ExpenseCategory.FOOD, // <--- ADDED
+        "food" to ExpenseCategory.FOOD,
         "swiggy" to ExpenseCategory.FOOD,
         "zomato" to ExpenseCategory.FOOD,
         "dominos" to ExpenseCategory.FOOD,
@@ -33,7 +33,11 @@ object CategoryEngine {
         "coffee" to ExpenseCategory.FOOD,
         
         // Transport
-        "transport" to ExpenseCategory.TRANSPORT, // <--- ADDED
+        "transport" to ExpenseCategory.TRANSPORT,
+        "travel" to ExpenseCategory.TRANSPORT,
+        "bus" to ExpenseCategory.TRANSPORT,
+        "train" to ExpenseCategory.TRANSPORT,
+        "flight" to ExpenseCategory.TRANSPORT,
         "uber" to ExpenseCategory.TRANSPORT,
         "ola" to ExpenseCategory.TRANSPORT,
         "rapido" to ExpenseCategory.TRANSPORT,
@@ -42,21 +46,21 @@ object CategoryEngine {
         "shell" to ExpenseCategory.TRANSPORT,
         
         // Shopping
-        "shopping" to ExpenseCategory.SHOPPING, // <--- ADDED
+        "shopping" to ExpenseCategory.SHOPPING,
         "amazon" to ExpenseCategory.SHOPPING,
         "flipkart" to ExpenseCategory.SHOPPING,
         "myntra" to ExpenseCategory.SHOPPING,
         "zara" to ExpenseCategory.SHOPPING,
         
         // Grocery
-        "grocery" to ExpenseCategory.GROCERY, // <--- ADDED
+        "grocery" to ExpenseCategory.GROCERY,
         "bigbasket" to ExpenseCategory.GROCERY,
         "zepto" to ExpenseCategory.GROCERY,
         "blinkit" to ExpenseCategory.GROCERY,
         "dmart" to ExpenseCategory.GROCERY,
         
         // Bills
-        "bill" to ExpenseCategory.BILLS, // <--- ADDED
+        "bill" to ExpenseCategory.BILLS,
         "bescom" to ExpenseCategory.BILLS,
         "jio" to ExpenseCategory.BILLS,
         "airtel" to ExpenseCategory.BILLS,

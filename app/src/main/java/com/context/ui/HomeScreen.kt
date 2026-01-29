@@ -48,11 +48,16 @@ fun HomeScreen(
     onNavigateToGroup: (Int) -> Unit,
     onCreateGroupClick: () -> Unit,
     onAddExpenseClick: () -> Unit,
-    onEditExpenseClick: (Int) -> Unit
+    onExpenseClick: (Int) -> Unit, // <-- RENAMED
+    onProfileClick: () -> Unit
 ) {
     val transactions by homeViewModel.allExpenses.collectAsState(initial = emptyList())
     val groups by homeViewModel.groups.collectAsState(initial = emptyList())
     val totalSpent by homeViewModel.totalSpent.collectAsState(initial = 0.0)
+
+    val spendingExpenses = remember(transactions) {
+        transactions.filter { it.category != "Settlement" }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -73,13 +78,13 @@ fun HomeScreen(
         ) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    HomeTopBar(name = "Vishwanath")
+                    HomeTopBar(name = "Vishwanath", onProfileClick = onProfileClick)
                     Spacer(modifier = Modifier.height(24.dp))
                     BalanceSummaryCard(amount = totalSpent?.toString() ?: "0.0")
                 }
             }
 
-            if (transactions.isNotEmpty()) {
+            if (spendingExpenses.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(
@@ -93,9 +98,9 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DonutChart(expenses = transactions, modifier = Modifier.weight(1f))
+                        DonutChart(expenses = spendingExpenses, modifier = Modifier.weight(1f))
                         Spacer(modifier = Modifier.width(24.dp))
-                        ChartLegend(expenses = transactions, modifier = Modifier.weight(1f))
+                        ChartLegend(expenses = spendingExpenses, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -115,6 +120,7 @@ fun HomeScreen(
             item {
                 GroupsList(
                     groups = groups,
+                    expenses = transactions, 
                     onGroupClick = onNavigateToGroup,
                     onNewGroupClick = onCreateGroupClick
                 )
@@ -141,7 +147,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 16.dp)
-                            .clickable { onEditExpenseClick(expense.id) }
+                            .clickable { onExpenseClick(expense.id) } // <-- RENAMED
                     ) {
                         TransactionItemCard(transaction = details)
                     }
@@ -160,12 +166,13 @@ fun Expense.toTransactionDetails(): TransactionDetails {
         amount = this.amount.toString(),
         type = TransactionType.EXPENSE,
         category = this.category,
-        source = if (this.isAuto) TransactionSource.AUTO_DETECTED else TransactionSource.MANUAL
+        source = if (this.isAuto) TransactionSource.AUTO_DETECTED else TransactionSource.MANUAL,
+        isAuto = this.isAuto
     )
 }
 
 @Composable
-private fun HomeTopBar(name: String) {
+private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -184,6 +191,7 @@ private fun HomeTopBar(name: String) {
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surface)
+                .clickable { onProfileClick() }
                 .padding(8.dp)
         )
     }
@@ -247,16 +255,25 @@ private fun ChartLegend(expenses: List<Expense>, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun GroupsList(groups: List<Group>, onGroupClick: (Int) -> Unit, onNewGroupClick: () -> Unit) {
+private fun GroupsList(groups: List<Group>, expenses: List<Expense>, onGroupClick: (Int) -> Unit, onNewGroupClick: () -> Unit) {
     LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(horizontal = 16.dp)
     ) {
         item {
             NewGroupCard(onClick = onNewGroupClick)
         }
         items(groups) { group ->
-            GroupCard(group = group, onClick = { onGroupClick(group.groupId) })
+            val groupExpenses = expenses.filter { it.groupId == group.groupId }
+            val groupTotal = groupExpenses
+                .filter { it.category != "Settlement" } 
+                .sumOf { it.amount }
+
+            GroupCard(
+                groupName = group.name,
+                totalAmount = groupTotal, 
+                onClick = { onGroupClick(group.groupId) }
+            )
         }
     }
 }
@@ -285,14 +302,14 @@ private fun NewGroupCard(onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GroupCard(group: Group, onClick: () -> Unit) {
+private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Unit) {
     val pastelColors = listOf(
         Color(0xFFE3F2FD), // Pastel Blue
         Color(0xFFF3E5F5), // Pastel Purple
         Color(0xFFFFF0E5), // Pastel Orange
         Color(0xFFE8F5E9)  // Pastel Green
     )
-    val cardColor = pastelColors[group.groupId % pastelColors.size]
+    val cardColor = pastelColors[groupName.hashCode() % pastelColors.size]
 
     Card(
         modifier = Modifier
@@ -308,13 +325,13 @@ private fun GroupCard(group: Group, onClick: () -> Unit) {
             horizontalAlignment = Alignment.Start
         ) {
             Text(
-                text = group.name,
+                text = groupName,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f)
             )
             Text(
-                text = "₹${group.totalSpent?.toInt() ?: 0}",
+                text = "₹${totalAmount.toInt()}",
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyLarge
             )
@@ -352,6 +369,6 @@ private fun EmptyState() {
 @Composable
 fun HomeScreenWithGroupsPreview() {
     ContextTheme {
-        HomeScreen(onNavigateToGroup = {}, onCreateGroupClick = {}, onAddExpenseClick = {}, onEditExpenseClick = {})
+        HomeScreen(onNavigateToGroup = {}, onCreateGroupClick = {}, onAddExpenseClick = {}, onExpenseClick = {}, onProfileClick = {})
     }
 }

@@ -17,24 +17,20 @@ fun AppNavigation() {
     val context = LocalContext.current
     val navController = rememberNavController()
 
-    // DECIDE START DESTINATION
     val startRoute = if (isNotificationPermissionGranted(context)) "home" else "welcome"
 
     NavHost(navController = navController, startDestination = startRoute) {
 
-        // 1. Welcome Screen
         composable("welcome") {
             WelcomeScreen(
                 onNavigateToHome = {
-                    // Navigate to home and clear back stack so user can't "back" into welcome
                     navController.navigate("home") {
                         popUpTo("welcome") { inclusive = true }
                     }
                 }
             )
         }
-
-        // 2. Home Screen (Your existing code)
+        
         composable("home") {
             HomeScreen(
                 onNavigateToGroup = { groupId -> 
@@ -46,13 +42,15 @@ fun AppNavigation() {
                 onAddExpenseClick = {
                     navController.navigate("add_expense")
                 },
-                onEditExpenseClick = { expenseId ->
+                onExpenseClick = { expenseId -> // <-- RENAMED
                     navController.navigate("edit_expense/$expenseId")
+                },
+                onProfileClick = {
+                    navController.navigate("settings")
                 }
             )
         }
 
-        // ... rest of your routes (add_expense, etc.) ...
         composable("create_group") {
             CreateGroupScreen(
                 onBack = { navController.popBackStack() },
@@ -64,10 +62,17 @@ fun AppNavigation() {
             route = "group_detail/{groupId}",
             arguments = listOf(navArgument("groupId") { type = NavType.IntType })
         ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: 0
             GroupDetailScreen(
                 onBack = { navController.popBackStack() },
                 onAddExpenseClick = {
                     navController.navigate("add_expense")
+                },
+                 onSettleUpClick = { 
+                    navController.navigate("settle_up/$groupId")
+                },
+                onExpenseClick = { expenseId -> // <-- RENAMED
+                    navController.navigate("edit_expense/$expenseId")
                 }
             )
         }
@@ -88,6 +93,24 @@ fun AppNavigation() {
                 expenseId = expenseId,
                 onBack = { navController.popBackStack() },
                 onExpenseUpdated = { navController.popBackStack() }
+            )
+        }
+        
+        composable(
+            route = "settle_up/{groupId}",
+            arguments = listOf(navArgument("groupId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: 0
+            SettleUpScreen(
+                groupId = groupId,
+                onBack = { navController.popBackStack() },
+                onSettled = { navController.popBackStack() }
+            )
+        }
+
+        composable("settings") {
+            SettingsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }
