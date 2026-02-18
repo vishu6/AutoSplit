@@ -12,15 +12,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
 import com.context.data.Group
-import com.context.utils.CategoryEngine
+import com.context.ui.theme.CategoryStyling
+import com.context.utils.CategoryUtils
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +43,11 @@ fun EditExpenseScreen(
     var selectedGroup by remember { mutableStateOf<Group?>(null) }
     var isGroupDropdownExpanded by remember { mutableStateOf(false) }
 
+    // Category Selector State
+    var selectedCategory by remember { mutableStateOf("") }
+    var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
+    val categories = remember { CategoryUtils.categories }
+
     // LOAD DATA
     LaunchedEffect(expenseId) {
         val exp = db.expenseDao().getExpenseById(expenseId)
@@ -51,6 +55,7 @@ fun EditExpenseScreen(
             existingExpense = exp
             amount = exp.amount.toString().replace(".0", "") // Clean format
             description = exp.merchant
+            selectedCategory = exp.category
         }
     }
 
@@ -92,19 +97,18 @@ fun EditExpenseScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
             
-            // AMOUNT
             OutlinedTextField(
                 value = amount,
                 onValueChange = { if (it.all { char -> char.isDigit() || char == '.' }) amount = it },
-                textStyle = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Bold),
+                label = { Text("Amount") },
+                textStyle = MaterialTheme.typography.titleLarge,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
-                prefix = { Text("₹") }
+                prefix = { Text("₹", style = MaterialTheme.typography.titleLarge) }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // DESCRIPTION
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
@@ -114,19 +118,57 @@ fun EditExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // GROUP SELECTOR
-            Box {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth().clickable { isGroupDropdownExpanded = true },
-                    shape = RoundedCornerShape(8.dp)
+            // CATEGORY SELECTOR
+            ExposedDropdownMenuBox(
+                expanded = isCategoryDropdownExpanded,
+                onExpandedChange = { isCategoryDropdownExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedCategory,
+                    onValueChange = {}, // Read-only
+                    label = { Text("Category") },
+                    readOnly = true,
+                    leadingIcon = {
+                        val style = CategoryStyling.getStyle(selectedCategory)
+                        Icon(style.icon, contentDescription = null, tint = style.color)
+                    },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isCategoryDropdownExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = isCategoryDropdownExpanded,
+                    onDismissRequest = { isCategoryDropdownExpanded = false }
                 ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(selectedGroup?.name ?: "Personal Expense")
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text("▼")
+                    categories.forEach { category ->
+                        val style = CategoryStyling.getStyle(category)
+                        DropdownMenuItem(
+                            text = { Text(category) },
+                            leadingIcon = { Icon(style.icon, contentDescription = null, tint = style.color) },
+                            onClick = { 
+                                selectedCategory = category 
+                                isCategoryDropdownExpanded = false
+                            }
+                        )
                     }
                 }
-                DropdownMenu(
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // GROUP SELECTOR
+            ExposedDropdownMenuBox(
+                expanded = isGroupDropdownExpanded,
+                onExpandedChange = { isGroupDropdownExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedGroup?.name ?: "Personal Expense",
+                    onValueChange = {}, // Read-only
+                    label = { Text("Group") },
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isGroupDropdownExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
                     expanded = isGroupDropdownExpanded,
                     onDismissRequest = { isGroupDropdownExpanded = false }
                 ) {
@@ -150,7 +192,7 @@ fun EditExpenseScreen(
                                 amount = amtVal,
                                 merchant = description,
                                 groupId = selectedGroup?.groupId,
-                                category = CategoryEngine.predictCategory(description).label
+                                category = selectedCategory // Use user's selection
                             )
                             db.expenseDao().update(updatedExp)
                             

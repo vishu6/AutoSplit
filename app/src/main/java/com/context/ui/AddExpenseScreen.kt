@@ -1,7 +1,6 @@
 package com.context.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -21,7 +19,8 @@ import androidx.compose.ui.unit.sp
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
 import com.context.data.Group
-import com.context.utils.CategoryEngine
+import com.context.ui.theme.CategoryStyling
+import com.context.utils.CategoryUtils
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,10 +37,15 @@ fun AddExpenseScreen(
     var amount by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     
+    // Category State
+    var selectedCategory by remember { mutableStateOf("Other") } // Default category
+    var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
+    val categories = remember { CategoryUtils.categories }
+
     // Group Selection State
     val groups by db.expenseDao().getAllGroups().collectAsState(initial = emptyList())
     var selectedGroup by remember { mutableStateOf<Group?>(null) } // null = Personal
-    var isGroupDropdownExpanded by remember { mutableStateOf(false) }
+    var isGroupDropdownExpandedForGroups by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -62,85 +66,88 @@ fun AddExpenseScreen(
                 .fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            
-            // 1. HUGE AMOUNT INPUT
-            Text("Enter Amount", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-            
+
             OutlinedTextField(
                 value = amount,
                 onValueChange = { if (it.all { char -> char.isDigit() || char == '.' }) amount = it },
-                textStyle = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Bold),
+                label = { Text("Amount") },
+                textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent
-                ),
-                prefix = { Text("₹", style = MaterialTheme.typography.displayMedium) },
+                prefix = { Text("₹", style = MaterialTheme.typography.titleLarge) },
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. DESCRIPTION INPUT
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("What is this for?") },
-                placeholder = { Text("e.g. Dinner, Taxi") },
+                label = { Text("Description") },
+                placeholder = { Text("e.g. Dinner with friends") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. GROUP SELECTOR (The "Smart" Split)
-            Text("Split with Group?", style = MaterialTheme.typography.labelLarge, modifier = Modifier.align(Alignment.Start))
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isGroupDropdownExpanded = true },
-                    shape = RoundedCornerShape(8.dp)
+            // CATEGORY SELECTOR
+            ExposedDropdownMenuBox(
+                expanded = isCategoryDropdownExpanded,
+                onExpandedChange = { isCategoryDropdownExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedCategory,
+                    onValueChange = {}, // Read-only
+                    label = { Text("Category") },
+                    readOnly = true,
+                    leadingIcon = {
+                        val style = CategoryStyling.getStyle(selectedCategory)
+                        Icon(style.icon, contentDescription = null, tint = style.color)
+                    },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isCategoryDropdownExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = isCategoryDropdownExpanded,
+                    onDismissRequest = { isCategoryDropdownExpanded = false }
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = selectedGroup?.name ?: "Personal Expense (No Split)",
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text("▼", fontSize = 12.sp)
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = isGroupDropdownExpanded,
-                    onDismissRequest = { isGroupDropdownExpanded = false },
-                    modifier = Modifier.fillMaxWidth(0.9f)
-                ) {
-                    // Option 1: Personal
-                    DropdownMenuItem(
-                        text = { Text("Personal Expense (No Split)") },
-                        onClick = {
-                            selectedGroup = null
-                            isGroupDropdownExpanded = false
-                        }
-                    )
-                    Divider()
-                    // Option 2: List of Groups
-                    groups.forEach { group ->
+                    categories.forEach { category ->
+                        val style = CategoryStyling.getStyle(category)
                         DropdownMenuItem(
-                            text = { Text(group.name) },
-                            onClick = {
-                                selectedGroup = group
-                                isGroupDropdownExpanded = false
+                            text = { Text(category) },
+                            leadingIcon = { Icon(style.icon, contentDescription = null, tint = style.color) },
+                            onClick = { 
+                                selectedCategory = category 
+                                isCategoryDropdownExpanded = false
                             }
                         )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // GROUP SELECTOR
+            ExposedDropdownMenuBox(
+                expanded = isGroupDropdownExpandedForGroups,
+                onExpandedChange = { isGroupDropdownExpandedForGroups = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedGroup?.name ?: "Personal Expense",
+                    onValueChange = {}, // Read-only
+                    label = { Text("Group") },
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isGroupDropdownExpandedForGroups) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = isGroupDropdownExpandedForGroups,
+                    onDismissRequest = { isGroupDropdownExpandedForGroups = false }
+                ) {
+                    DropdownMenuItem(text = { Text("Personal") }, onClick = { selectedGroup = null; isGroupDropdownExpandedForGroups = false })
+                    groups.forEach { group ->
+                        DropdownMenuItem(text = { Text(group.name) }, onClick = { selectedGroup = group; isGroupDropdownExpandedForGroups = false })
                     }
                 }
             }
@@ -153,18 +160,16 @@ fun AddExpenseScreen(
                     val amountVal = amount.toDoubleOrNull()
                     if (amountVal != null && amountVal > 0) {
                         scope.launch {
-                            val category = CategoryEngine.predictCategory(description)
-                            
                             val newExpense = Expense(
-                                merchant = description.ifBlank { category.label },
+                                merchant = description.ifBlank { selectedCategory },
                                 amount = amountVal,
                                 timestamp = System.currentTimeMillis(),
-                                category = category.label,
+                                category = selectedCategory,
                                 groupId = selectedGroup?.groupId,
                                 paidBy = "You",
                                 isAuto = false
                             )
-                            
+
                             db.expenseDao().insert(newExpense)
 
                             selectedGroup?.groupId?.let {

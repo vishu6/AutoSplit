@@ -98,6 +98,7 @@ fun SettleUpScreen(
                                     isAuto = false
                                 )
                             )
+                            db.expenseDao().recalculateGroupTotal(groupId)
                             onSettled()
                         }
                     }

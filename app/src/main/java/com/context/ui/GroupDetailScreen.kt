@@ -7,11 +7,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,22 +21,53 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.context.data.Expense
 import com.context.ui.theme.ContextTheme
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupDetailScreen(
-    onBack: () -> Unit, 
-    onAddExpenseClick: () -> Unit, 
+    onBack: () -> Unit,
+    onAddExpenseClick: () -> Unit,
     onSettleUpClick: () -> Unit,
-    onExpenseClick: (Int) -> Unit, // <-- RENAMED
+    onExpenseClick: (Int) -> Unit,
     viewModel: GroupDetailViewModel = hiltViewModel()
 ) {
+    val scope = rememberCoroutineScope()
     val expenses by viewModel.expenses.collectAsState()
     val group by viewModel.group.collectAsState()
     val perHeadCost by viewModel.perHeadCost.collectAsState()
     val totalSpent by viewModel.groupTotal.collectAsState()
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Group?") },
+            text = { Text("Are you sure you want to delete this group? All expenses will be moved to your personal account.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            viewModel.deleteGroup()
+                            onBack()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -47,24 +78,29 @@ fun GroupDetailScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Settle Up") },
+                            onClick = { onSettleUpClick(); showMenu = false },
+                            leadingIcon = { Icon(Icons.Default.Savings, contentDescription = "Settle Up") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Group") },
+                            onClick = { showDeleteDialog = true; showMenu = false },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = "Delete Group") }
+                        )
+                    }
                 }
             )
         },
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                SmallFloatingActionButton(
-                    onClick = onSettleUpClick,
-                    containerColor = Color(0xFFE8F5E9),
-                    contentColor = Color(0xFF2E7D32)
-                ) {
-                    Icon(Icons.Default.AttachMoney, contentDescription = "Settle")
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-
-                FloatingActionButton(onClick = onAddExpenseClick) {
-                    Icon(Icons.Default.Add, contentDescription = "Add")
-                }
+            FloatingActionButton(onClick = onAddExpenseClick) {
+                Icon(Icons.Default.Add, contentDescription = "Add Expense")
             }
         }
     ) { padding ->
@@ -74,7 +110,6 @@ fun GroupDetailScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            // Header
             Text(
                 text = "₹${String.format("%.2f", totalSpent)}",
                 style = MaterialTheme.typography.headlineMedium,
@@ -82,7 +117,7 @@ fun GroupDetailScreen(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Text(
                 text = "₹${String.format("%.2f", perHeadCost)} / person",
                 style = MaterialTheme.typography.bodyLarge,
@@ -99,7 +134,7 @@ fun GroupDetailScreen(
             Spacer(modifier = Modifier.height(16.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(expenses) { expense ->
-                    Box(modifier = Modifier.clickable { onExpenseClick(expense.id) }) { // <-- RENAMED
+                    Box(modifier = Modifier.clickable { onExpenseClick(expense.id) }) {
                         TransactionItemCard(transaction = expense.toTransactionDetails())
                     }
                 }

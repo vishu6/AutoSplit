@@ -1,20 +1,38 @@
 package com.context.utils
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Commute
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Dining
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.Flight
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocalGroceryStore
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class ExpenseCategory(val label: String, val icon: ImageVector) {
+    // Original Categories
     FOOD("Food & Drink", Icons.Default.Dining),
-    TRANSPORT("Transport", Icons.Default.Commute),
+    TRANSPORT("Transport", Icons.Default.DirectionsBus),
     GROCERY("Groceries", Icons.Default.LocalGroceryStore),
     SHOPPING("Shopping", Icons.Default.ShoppingBag),
     BILLS("Bills & Utilities", Icons.Default.Receipt),
-    GENERAL("General", Icons.Default.Receipt)
+
+    // New Categories
+    ENTERTAINMENT("Entertainment", Icons.Default.Movie),
+    HEALTH("Health & Wellness", Icons.Default.Spa),
+    TRAVEL("Travel", Icons.Default.Flight),
+    EDUCATION("Education", Icons.Default.School),
+    WORK("Work", Icons.Default.Work),
+    GIFTS("Gifts & Donations", Icons.Default.CardGiftcard),
+    FAMILY("Family & Personal", Icons.Default.Groups),
+    OTHER("Other", Icons.Default.Lightbulb) // General fallback
 }
 
 object CategoryEngine {
@@ -34,10 +52,8 @@ object CategoryEngine {
         
         // Transport
         "transport" to ExpenseCategory.TRANSPORT,
-        "travel" to ExpenseCategory.TRANSPORT,
         "bus" to ExpenseCategory.TRANSPORT,
         "train" to ExpenseCategory.TRANSPORT,
-        "flight" to ExpenseCategory.TRANSPORT,
         "uber" to ExpenseCategory.TRANSPORT,
         "ola" to ExpenseCategory.TRANSPORT,
         "rapido" to ExpenseCategory.TRANSPORT,
@@ -65,7 +81,25 @@ object CategoryEngine {
         "jio" to ExpenseCategory.BILLS,
         "airtel" to ExpenseCategory.BILLS,
         "act" to ExpenseCategory.BILLS,
-        "netflix" to ExpenseCategory.BILLS
+        "netflix" to ExpenseCategory.BILLS,
+        
+        // Travel
+        "travel" to ExpenseCategory.TRAVEL,
+        "flight" to ExpenseCategory.TRAVEL,
+        "indigo" to ExpenseCategory.TRAVEL,
+        "vistara" to ExpenseCategory.TRAVEL,
+        "makemytrip" to ExpenseCategory.TRAVEL,
+
+        // Entertainment
+        "movie" to ExpenseCategory.ENTERTAINMENT,
+        "bookmyshow" to ExpenseCategory.ENTERTAINMENT,
+        "inox" to ExpenseCategory.ENTERTAINMENT,
+        "pvr" to ExpenseCategory.ENTERTAINMENT,
+
+        // Health
+        "health" to ExpenseCategory.HEALTH,
+        "apollo" to ExpenseCategory.HEALTH,
+        "pharmacy" to ExpenseCategory.HEALTH,
     )
 
     fun predictCategory(merchantName: String): ExpenseCategory {
@@ -77,6 +111,6 @@ object CategoryEngine {
             }
         }
         
-        return ExpenseCategory.GENERAL
+        return ExpenseCategory.OTHER // Default to Other
     }
 }

@@ -11,75 +11,101 @@ import com.context.utils.CategoryEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.regex.Pattern
 
 class ExpenseNotificationListener : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO)
-
-    private val PAYMENT_APPS = setOf(
-        "com.google.android.apps.nbu.paisa.user", // GPay
-        "com.phonepe.app",                        // PhonePe
-        "net.one97.paytm",                        // Paytm
-        "com.freecharge.android",
-        "com.amazon.mShop.android.shopping"       // Amazon Pay often comes via main app
-    )
+    private val TAG = "ExpenseListener"
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         if (sbn == null) return
 
         val packageName = sbn.packageName
-        
-        if (!PAYMENT_APPS.contains(packageName)) return
-
         val extras = sbn.notification.extras
         val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
         val text = extras.getString(Notification.EXTRA_TEXT) ?: ""
-        
-        Log.d("ContextListener", "Raw Notification: $packageName | $title | $text")
 
-        parseAndSaveExpense(packageName, title, text)
+        val allowedApps = listOf(
+            "com.phonepe.app",                       // PhonePe
+            "com.google.android.apps.nbu.paisa.user",// GPay
+            "net.one97.paytm",                       // Paytm
+            "com.google.android.apps.messaging",     // Google Messages
+            "com.samsung.android.messaging",     // Samsung Messages
+            "com.android.mms",                       // Xiaomi/OnePlus Messages
+            "com.truecaller"                         // Truecaller
+        )
+
+        if (packageName in allowedApps) {
+            Log.d(TAG, "Notification from allowed app ($packageName): $title - $text")
+            parseTransactionMessage(text, title)
+        }
     }
 
-    private fun parseAndSaveExpense(appPackage: String, title: String, message: String) {
-        val amountRegex = Pattern.compile("(?i)(?:paid|sent|debited)\\s*(?:₹|Rs\\.?|INR)\\s*([\\d,]+(\\.\\d{1,2})?)", Pattern.CASE_INSENSITIVE)
-        val merchantRegex = Pattern.compile("(?i)(?:to|at)\\s+([a-zA-Z0-9 ]+)", Pattern.CASE_INSENSITIVE)
+    private fun parseTransactionMessage(message: String, title: String) {
+        val cleanMsg = message.lowercase().replace(",", "")
 
-        val amountMatcher = amountRegex.matcher(message)
-        val merchantMatcher = merchantRegex.matcher(message)
+        if (cleanMsg.contains("otp") || cleanMsg.contains("login") || cleanMsg.contains("credited")) {
+            Log.d(TAG, "Ignoring OTP, login, or credit notification.")
+            return
+        }
 
-        if (amountMatcher.find()) {
-            val rawAmount = amountMatcher.group(1)?.replace(",", "") ?: "0"
-            val amount = rawAmount.toDoubleOrNull() ?: 0.0
-            
-            var merchant = "Unknown Merchant"
-            if (merchantMatcher.find()) {
-                merchant = merchantMatcher.group(1)?.trim() ?: "Unknown"
+        val debitPattern = Regex("(?i)(rs\\.?|inr)\\s*(\\d+(\\.\\d{1,2})?)")
+        val isExpense = cleanMsg.contains("debited") ||
+                        cleanMsg.contains("spent") ||
+                        cleanMsg.contains("paid") ||
+                        cleanMsg.contains("sent")
+
+        if (isExpense) {
+            val match = debitPattern.find(cleanMsg)
+            if (match != null) {
+                val amountString = match.groupValues[2]
+                val amount = amountString.toDoubleOrNull() ?: 0.0
+                val merchant = extractMerchantName(message, title)
+
+                Log.i(TAG, "✅ Parsed Expense: Amount='$amount', Merchant='$merchant'")
+                saveExpense(merchant, amount)
+            } else {
+                Log.w(TAG, "Expense keyword found, but couldn\'t parse amount.")
             }
+        } else {
+            Log.d(TAG, "No expense-related keywords found.")
+        }
+    }
 
-            if (merchant.contains("UPI", ignoreCase = true)) merchant = "UPI Transfer"
+    private fun extractMerchantName(message: String, title: String): String {
+        val pattern = Regex("(?i)(to|at)\\s+([a-zA-Z0-9 ]+)")
+        val match = pattern.find("$title $message")
 
-            Log.i("ContextListener", "💰 DETECTED: ₹$amount at $merchant")
+        return if (match != null) {
+            match.groupValues[2].take(25).trim()
+        } else {
+            // If no merchant found with "to/at", use the notification title as a fallback
+            if (title.isNotEmpty() && !title.contains("OTP", ignoreCase = true)) title else "Unknown Expense"
+        }
+    }
 
-            serviceScope.launch {
-                val predictedCategory = CategoryEngine.predictCategory(merchant)
+    private fun saveExpense(merchant: String, amount: Double) {
+        serviceScope.launch {
+            val predictedCategory = CategoryEngine.predictCategory(merchant)
+            val expense = Expense(
+                merchant = merchant,
+                amount = amount,
+                timestamp = System.currentTimeMillis(),
+                category = predictedCategory.label,
+                groupId = null,
+                isAuto = true
+            )
 
-                val expense = Expense(
-                    merchant = merchant,
-                    amount = amount,
-                    timestamp = System.currentTimeMillis(),
-                    category = predictedCategory.label,
-                    groupId = null,
-                    isAuto = true // MARK AS AUTO
-                )
+            try {
                 val db = ExpenseDatabase.getDatabase(applicationContext)
                 db.expenseDao().insert(expense)
+                Log.i(TAG, "✅✅✅ Expense successfully saved to database: $expense")
                 
                 val intent = Intent("com.context.app.NEW_EXPENSE")
-                intent.putExtra("amount", amount)
-                intent.putExtra("merchant", merchant)
                 sendBroadcast(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error saving expense to database", e)
             }
         }
     }

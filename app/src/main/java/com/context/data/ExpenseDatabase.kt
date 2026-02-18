@@ -46,7 +46,6 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<Expense>>
     
-    // CORRECTED: Ignore Settlements from total
     @Query("SELECT SUM(amount) FROM expenses WHERE category != 'Settlement'")
     fun getTotalSpent(): Flow<Double?>
 
@@ -59,20 +58,24 @@ interface ExpenseDao {
     @Insert
     suspend fun insertGroup(group: Group): Long
 
+    @Delete
+    suspend fun deleteGroup(group: Group)
+
     @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY timestamp DESC")
     fun getExpensesForGroup(groupId: Int): Flow<List<Expense>>
     
-    // This query is no longer used directly by the UI, but let's keep it for potential future use
     @Query("SELECT SUM(amount) FROM expenses WHERE groupId = :groupId")
     fun getGroupTotal(groupId: Int): Flow<Double?>
 
-    // CORRECTED: Ignore Settlements when updating the group's total
     @Query("UPDATE `groups` SET totalSpent = (SELECT SUM(amount) FROM expenses WHERE groupId = :groupId AND category != 'Settlement') WHERE groupId = :groupId")
     suspend fun recalculateGroupTotal(groupId: Int)
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE amount = :amount AND timestamp > :timeThreshold")
+    suspend fun checkDuplicate(amount: Double, timeThreshold: Long): Int
 }
 
 
-@Database(entities = [Expense::class, Group::class], version = 6)
+@Database(entities = [Expense::class, Group::class], version = 7)
 abstract class ExpenseDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
 

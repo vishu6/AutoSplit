@@ -1,10 +1,21 @@
 package com.context.ui
 
-import androidx.compose.foundation.BorderStroke
+import android.content.Intent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -12,13 +23,30 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,12 +54,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.context.components.DonutChart
 import com.context.data.Expense
 import com.context.data.Group
@@ -39,24 +70,75 @@ import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ContextTheme
 import com.context.ui.theme.ElectricBlue
 import com.context.ui.theme.LightBlue
+import com.context.utils.DateUtils
+import com.context.utils.OnboardingUtils
+import com.context.utils.PermissionUtils
+import com.context.utils.TimeRange
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 @Composable
 fun HomeScreen(
-    homeViewModel: HomeViewModel = hiltViewModel(),
+    homeViewModel: HomeViewModel,
     onNavigateToGroup: (Int) -> Unit,
     onCreateGroupClick: () -> Unit,
     onAddExpenseClick: () -> Unit,
-    onExpenseClick: (Int) -> Unit, // <-- RENAMED
-    onProfileClick: () -> Unit
+    onExpenseClick: (Int) -> Unit,
+    onProfileClick: () -> Unit,
+    onViewAllClick: () -> Unit
 ) {
     val transactions by homeViewModel.allExpenses.collectAsState(initial = emptyList())
     val groups by homeViewModel.groups.collectAsState(initial = emptyList())
-    val totalSpent by homeViewModel.totalSpent.collectAsState(initial = 0.0)
+    val filteredTotalSpent by homeViewModel.filteredTotalSpent.collectAsState()
+    val filteredExpenses by homeViewModel.filteredExpenses.collectAsState()
+    val selectedRange by homeViewModel.selectedTimeRange.collectAsState()
+    val currentCalendar by homeViewModel.currentCalendar.collectAsState()
 
-    val spendingExpenses = remember(transactions) {
-        transactions.filter { it.category != "Settlement" }
+    val spendingExpenses = remember(filteredExpenses) {
+        filteredExpenses.filter { it.category != "Settlement" }
+    }
+
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                savedName = OnboardingUtils.getUserName(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!PermissionUtils.isNotificationServiceEnabled(context)) {
+            showPermissionDialog = true
+        }
+    }
+
+    if (showPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { /* Do nothing, force them to choose */ },
+            title = { Text("Enable Auto-Tracking") },
+            text = { Text("To automatically track expenses from SMS, Split Mate needs 'Notification Access'. Please turn it on in the next screen.") },
+            confirmButton = {
+                Button(onClick = {
+                    showPermissionDialog = false
+                    PermissionUtils.openNotificationSettings(context)
+                }) {
+                    Text("Go to Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionDialog = false }) {
+                    Text("Later")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -74,14 +156,25 @@ fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 88.dp)
         ) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    HomeTopBar(name = "Vishwanath", onProfileClick = onProfileClick)
+                    HomeTopBar(name = savedName, onProfileClick = onProfileClick)
                     Spacer(modifier = Modifier.height(24.dp))
-                    BalanceSummaryCard(amount = totalSpent?.toString() ?: "0.0")
+                    BalanceSummaryCard(amount = filteredTotalSpent.toString(), selectedRange = selectedRange, calendar = currentCalendar)
                 }
+            }
+
+            item {
+                TimeRangeFilter(
+                    selectedRange = selectedRange,
+                    onRangeSelected = { homeViewModel.onTimeRangeSelected(it) },
+                    calendar = currentCalendar,
+                    onNext = { homeViewModel.onNextPeriod() },
+                    onPrevious = { homeViewModel.onPreviousPeriod() }
+                )
             }
 
             if (spendingExpenses.isNotEmpty()) {
@@ -128,30 +221,143 @@ fun HomeScreen(
             }
 
             item {
-                Text(
-                    text = "Recent Transactions",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                val title = when (selectedRange) {
+                    TimeRange.TODAY -> {
+                        when {
+                            DateUtils.isToday(currentCalendar) -> "Today's Transactions"
+                            DateUtils.isYesterday(currentCalendar) -> "Yesterday's Transactions"
+                            else -> {
+                                val day = currentCalendar.get(Calendar.DAY_OF_MONTH)
+                                val suffix = DateUtils.getDayOfMonthSuffix(day)
+                                val month = SimpleDateFormat("MMM", Locale.getDefault()).format(currentCalendar.time)
+                                "$month $day$suffix Transactions"
+                            }
+                        }
+                    }
+                    TimeRange.WEEK -> if (DateUtils.isThisWeek(currentCalendar)) "This Week's Transactions" else "Week's Transactions"
+                    TimeRange.MONTH -> {
+                        if (DateUtils.isThisMonth(currentCalendar)) {
+                            "This Month's Transactions"
+                        } else {
+                            val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
+                            "${monthFormat.format(currentCalendar.time)}'s Transactions"
+                        }
+                    }
+                    TimeRange.YEAR -> {
+                        if (DateUtils.isThisYear(currentCalendar)) {
+                            "This Year's Transactions"
+                        } else {
+                            val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
+                            "${yearFormat.format(currentCalendar.time)}'s Transactions"
+                        }
+                    }
+                    TimeRange.ALL -> "Recent Transactions"
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TextButton(onClick = onViewAllClick) {
+                        Text("View All")
+                    }
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (transactions.isEmpty()) {
+            if (filteredExpenses.isEmpty()) {
                 item {
                     EmptyState()
                 }
             } else {
-                items(transactions) { expense ->
+                items(filteredExpenses.take(10)) { expense ->
                     val details = expense.toTransactionDetails()
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 16.dp)
-                            .clickable { onExpenseClick(expense.id) } // <-- RENAMED
+                            .clickable { onExpenseClick(expense.id) }
                     ) {
                         TransactionItemCard(transaction = details)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TimeRangeFilter(
+    selectedRange: TimeRange,
+    onRangeSelected: (TimeRange) -> Unit,
+    calendar: Calendar,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit
+) {
+    val dayFormat = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
+    val weekFormat = SimpleDateFormat("MMM d", Locale.getDefault())
+    val monthYearFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+    val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
+
+    val navigatorLabel = when (selectedRange) {
+        TimeRange.TODAY -> dayFormat.format(calendar.time)
+        TimeRange.WEEK -> {
+            val weekStart = calendar.clone() as Calendar
+            weekStart.set(Calendar.DAY_OF_WEEK, weekStart.firstDayOfWeek)
+            val weekEnd = weekStart.clone() as Calendar
+            weekEnd.add(Calendar.DAY_OF_WEEK, 6)
+            "${weekFormat.format(weekStart.time)} - ${weekFormat.format(weekEnd.time)}"
+        }
+        TimeRange.MONTH -> monthYearFormat.format(calendar.time)
+        TimeRange.YEAR -> yearFormat.format(calendar.time)
+        TimeRange.ALL -> "All Time"
+    }
+
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            listOf(TimeRange.TODAY, TimeRange.WEEK, TimeRange.MONTH, TimeRange.YEAR, TimeRange.ALL).forEach { range ->
+                TextButton(onClick = { onRangeSelected(range) }) {
+                     Text(
+                         text = range.name.lowercase().replaceFirstChar { it.uppercase() },
+                         fontWeight = if (range == selectedRange) FontWeight.Bold else FontWeight.Normal,
+                         color = if (range == selectedRange) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                     )
+                }
+            }
+        }
+
+        if (selectedRange != TimeRange.ALL) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onPrevious) {
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Previous")
+                }
+
+                Text(
+                    text = navigatorLabel,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                IconButton(onClick = onNext) {
+                    Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next")
                 }
             }
         }
@@ -173,6 +379,7 @@ fun Expense.toTransactionDetails(): TransactionDetails {
 
 @Composable
 private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
+    val greetingTime = remember { DateUtils.getGreeting() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -181,12 +388,13 @@ private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "Good Morning, $name",
-            style = MaterialTheme.typography.titleLarge
+            text = "$greetingTime, $name",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
         )
         Image(
-            imageVector = Icons.Default.Person,
-            contentDescription = "Profile",
+            imageVector = Icons.Default.Settings,
+            contentDescription = "Settings",
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
@@ -198,7 +406,37 @@ private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
 }
 
 @Composable
-private fun BalanceSummaryCard(amount: String) {
+private fun BalanceSummaryCard(amount: String, selectedRange: TimeRange, calendar: Calendar) {
+    val title = when (selectedRange) {
+        TimeRange.TODAY -> {
+            when {
+                DateUtils.isToday(calendar) -> "Total Spent Today"
+                DateUtils.isYesterday(calendar) -> "Total Spent Yesterday"
+                else -> {
+                    val monthDayFormat = SimpleDateFormat("MMMM d", Locale.getDefault())
+                    "Total Spent on ${monthDayFormat.format(calendar.time)}"
+                }
+            }
+        }
+        TimeRange.WEEK -> if (DateUtils.isThisWeek(calendar)) "Total Spent This Week" else "Total Spent in Week"
+        TimeRange.MONTH -> {
+            if (DateUtils.isThisMonth(calendar)) {
+                "Total Spent This Month"
+            } else {
+                val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
+                "Total Spent in ${monthFormat.format(calendar.time)}"
+            }
+        }
+        TimeRange.YEAR -> {
+            if (DateUtils.isThisYear(calendar)) {
+                "Total Spent This Year"
+            } else {
+                val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
+                "Total Spent in ${yearFormat.format(calendar.time)}"
+            }
+        }
+        TimeRange.ALL -> "Total Spent All Time"
+    }
     Card(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
@@ -215,7 +453,7 @@ private fun BalanceSummaryCard(amount: String) {
         ) {
             Column {
                 Text(
-                    text = "Total Spent This Month",
+                    text = title,
                     color = Color.White.copy(alpha = 0.8f),
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -369,6 +607,14 @@ private fun EmptyState() {
 @Composable
 fun HomeScreenWithGroupsPreview() {
     ContextTheme {
-        HomeScreen(onNavigateToGroup = {}, onCreateGroupClick = {}, onAddExpenseClick = {}, onExpenseClick = {}, onProfileClick = {})
+        HomeScreen(
+            homeViewModel = FakeHomeViewModelFactory.create(),
+            onNavigateToGroup = {}, 
+            onCreateGroupClick = {}, 
+            onAddExpenseClick = {}, 
+            onExpenseClick = {}, 
+            onProfileClick = {}, 
+            onViewAllClick = {}
+        )
     }
 }
