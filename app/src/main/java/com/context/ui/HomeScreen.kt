@@ -22,11 +22,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -77,6 +79,7 @@ import com.context.utils.TimeRange
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun HomeScreen(
@@ -91,6 +94,7 @@ fun HomeScreen(
     val transactions by homeViewModel.allExpenses.collectAsState(initial = emptyList())
     val groups by homeViewModel.groups.collectAsState(initial = emptyList())
     val filteredTotalSpent by homeViewModel.filteredTotalSpent.collectAsState()
+    val previousPeriodTotalSpent by homeViewModel.previousPeriodTotalSpent.collectAsState()
     val filteredExpenses by homeViewModel.filteredExpenses.collectAsState()
     val selectedRange by homeViewModel.selectedTimeRange.collectAsState()
     val currentCalendar by homeViewModel.currentCalendar.collectAsState()
@@ -163,7 +167,12 @@ fun HomeScreen(
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                     HomeTopBar(name = savedName, onProfileClick = onProfileClick)
                     Spacer(modifier = Modifier.height(24.dp))
-                    BalanceSummaryCard(amount = filteredTotalSpent.toString(), selectedRange = selectedRange, calendar = currentCalendar)
+                    BalanceSummaryCard(
+                        currentAmount = filteredTotalSpent,
+                        previousAmount = previousPeriodTotalSpent,
+                        selectedRange = selectedRange,
+                        calendar = currentCalendar
+                    )
                 }
             }
 
@@ -406,7 +415,12 @@ private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
 }
 
 @Composable
-private fun BalanceSummaryCard(amount: String, selectedRange: TimeRange, calendar: Calendar) {
+private fun BalanceSummaryCard(
+    currentAmount: Double,
+    previousAmount: Double,
+    selectedRange: TimeRange,
+    calendar: Calendar
+) {
     val title = when (selectedRange) {
         TimeRange.TODAY -> {
             when {
@@ -437,6 +451,34 @@ private fun BalanceSummaryCard(amount: String, selectedRange: TimeRange, calenda
         }
         TimeRange.ALL -> "Total Spent All Time"
     }
+
+    // LOGIC FOR COMPARISON TEXT
+    val comparisonText: Pair<String, Color?>? = remember(currentAmount, previousAmount, selectedRange, calendar) {
+        val dayOfMonth = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
+        val isCurrentMonth = DateUtils.isThisMonth(calendar)
+        
+        // Case 1: First 3 days of the month (and it's the current month)
+        if (selectedRange == TimeRange.MONTH && isCurrentMonth && dayOfMonth <= 3) {
+            if (previousAmount > 0) {
+                Pair("Last month total: ₹${String.format("%,.0f", previousAmount)}", Color.White.copy(alpha = 0.8f))
+            } else null
+        // Case 2: No data from the last period to compare to
+        } else if (previousAmount == 0.0) {
+            if (currentAmount > 0) Pair("Start your savings journey! 🚀", Color.White.copy(alpha = 0.8f)) else null
+        // Case 3: Standard comparison
+        } else {
+            val difference = currentAmount - previousAmount
+            val absDiff = abs(difference)
+            val formattedDiff = String.format("%,.0f", absDiff)
+            
+            when {
+                difference < 0 -> Pair("📉 ₹$formattedDiff less than last period", Color.White)
+                difference > 0 -> Pair("📈 ₹$formattedDiff more than last period", Color.White)
+                else -> Pair("Same as last period", Color.White.copy(alpha = 0.8f))
+            }
+        }
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
@@ -459,11 +501,20 @@ private fun BalanceSummaryCard(amount: String, selectedRange: TimeRange, calenda
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "₹$amount",
+                    text = "₹${String.format("%,.2f", currentAmount)}",
                     color = Color.White,
                     fontSize = 36.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
+                // Show comparison only if the logic provides text
+                if (comparisonText != null && selectedRange != TimeRange.ALL) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = comparisonText.first,
+                        color = comparisonText.second ?: Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }
@@ -588,14 +639,14 @@ private fun EmptyState() {
     ) {
         Spacer(modifier = Modifier.height(48.dp))
         Icon(
-            imageVector = Icons.Default.Warning,
+            imageVector = Icons.Default.AccountBalanceWallet,
             contentDescription = "Empty",
             modifier = Modifier.size(64.dp),
             tint = Color.LightGray
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Waiting for new expenses...",
+            text = "No transactions yet. Tap the '+' button to add your first one!",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray,
             textAlign = TextAlign.Center

@@ -63,6 +63,25 @@ class HomeViewModel @Inject constructor(
         initialValue = 0.0
     )
 
+    val previousPeriodTotalSpent = combine(allExpenses, selectedTimeRange, currentCalendar) { expenses, range, calendar ->
+        val previousCalendar = calendar.clone() as Calendar
+        when (range) {
+            TimeRange.TODAY -> previousCalendar.add(Calendar.DAY_OF_YEAR, -1)
+            TimeRange.WEEK -> previousCalendar.add(Calendar.WEEK_OF_YEAR, -1)
+            TimeRange.MONTH -> previousCalendar.add(Calendar.MONTH, -1)
+            TimeRange.YEAR -> previousCalendar.add(Calendar.YEAR, -1)
+            TimeRange.ALL -> { /* No comparison for ALL */ }
+        }
+        val (start, end) = DateFilterUtils.getTimeRange(range, previousCalendar)
+        expenses
+            .filter { it.timestamp in start..end && it.category != "Settlement" }
+            .sumOf { it.amount }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0.0
+    )
+
     fun onTimeRangeSelected(range: TimeRange) {
         _selectedTimeRange.value = range
         _currentCalendar.value = Calendar.getInstance() // Reset to current date on new selection
