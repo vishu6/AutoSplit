@@ -1,16 +1,23 @@
 package com.context.ui
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -38,14 +45,17 @@ fun AddExpenseScreen(
     var description by remember { mutableStateOf("") }
     
     // Category State
-    var selectedCategory by remember { mutableStateOf("Other") } // Default category
+    var selectedCategory by remember { mutableStateOf("Other") }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
     val categories = remember { CategoryUtils.categories }
 
     // Group Selection State
     val groups by db.expenseDao().getAllGroups().collectAsState(initial = emptyList())
-    var selectedGroup by remember { mutableStateOf<Group?>(null) } // null = Personal
+    var selectedGroup by remember { mutableStateOf<Group?>(null) }
     var isGroupDropdownExpandedForGroups by remember { mutableStateOf(false) }
+
+    // Split Calculation
+    val amountDouble = amount.toDoubleOrNull() ?: 0.0
 
     Scaffold(
         topBar = {
@@ -98,7 +108,7 @@ fun AddExpenseScreen(
             ) {
                 OutlinedTextField(
                     value = selectedCategory,
-                    onValueChange = {}, // Read-only
+                    onValueChange = {},
                     label = { Text("Category") },
                     readOnly = true,
                     leadingIcon = {
@@ -135,9 +145,10 @@ fun AddExpenseScreen(
             ) {
                 OutlinedTextField(
                     value = selectedGroup?.name ?: "Personal Expense",
-                    onValueChange = {}, // Read-only
+                    onValueChange = {},
                     label = { Text("Group") },
                     readOnly = true,
+                    leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isGroupDropdownExpandedForGroups) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
                 )
@@ -152,9 +163,24 @@ fun AddExpenseScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f)) // Push button to bottom
+            // DYNAMIC SPLIT PREVIEW
+            AnimatedVisibility(
+                visible = selectedGroup != null && amountDouble > 0,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SplitPreviewCard(
+                        members = selectedGroup?.getMemberList() ?: emptyList(),
+                        totalAmount = amountDouble
+                    )
+                }
+            }
 
-            // 4. SAVE BUTTON
+            Spacer(modifier = Modifier.weight(1f))
+
+            // SAVE BUTTON
             Button(
                 onClick = {
                     val amountVal = amount.toDoubleOrNull()
@@ -189,6 +215,64 @@ fun AddExpenseScreen(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Save Expense", fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun SplitPreviewCard(
+    members: List<String>,
+    totalAmount: Double
+) {
+    val perPerson = if (members.isNotEmpty()) totalAmount / members.size else 0.0
+    
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Split Breakdown",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            members.forEach { member ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = member.take(1).uppercase(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (member.trim().lowercase() == "you") "You pay" else "$member owes",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Text(
+                        text = "₹${String.format("%.2f", perPerson)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

@@ -37,7 +37,6 @@ class ExpenseNotificationListener : NotificationListenerService() {
         )
 
         if (packageName in allowedApps) {
-            Log.d(TAG, "Notification from allowed app ($packageName): $title - $text")
             parseTransactionMessage(text, title)
         }
     }
@@ -46,7 +45,6 @@ class ExpenseNotificationListener : NotificationListenerService() {
         val cleanMsg = message.lowercase().replace(",", "")
 
         if (cleanMsg.contains("otp") || cleanMsg.contains("login") || cleanMsg.contains("credited")) {
-            Log.d(TAG, "Ignoring OTP, login, or credit notification.")
             return
         }
 
@@ -68,8 +66,6 @@ class ExpenseNotificationListener : NotificationListenerService() {
             } else {
                 Log.w(TAG, "Expense keyword found, but couldn\'t parse amount.")
             }
-        } else {
-            Log.d(TAG, "No expense-related keywords found.")
         }
     }
 

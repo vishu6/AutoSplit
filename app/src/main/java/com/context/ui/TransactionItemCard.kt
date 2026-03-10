@@ -58,7 +58,10 @@ fun TransactionItemCard(transaction: TransactionDetails) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -67,20 +70,29 @@ fun TransactionItemCard(transaction: TransactionDetails) {
         ) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = categoryStyle.color,
+                color = if (isSettlement) categoryStyle.color else categoryStyle.color.copy(alpha = 0.2f),
                 modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = categoryStyle.icon,
                     contentDescription = transaction.category,
-                    tint = if (isSettlement) Color(0xFF2E7D32) else Color.Black.copy(alpha = 0.7f),
+                    tint = if (isSettlement) Color(0xFF2E7D32) else categoryStyle.color,
                     modifier = Modifier.padding(12.dp)
                 )
             }
 
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(text = transaction.merchant, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(text = if (isSettlement) "Repayment" else transaction.dateTime, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text(
+                    text = transaction.merchant, 
+                    style = MaterialTheme.typography.bodyLarge, 
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (isSettlement) "Repayment" else transaction.dateTime, 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
             }
 
             Column(horizontalAlignment = Alignment.End) {

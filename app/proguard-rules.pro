@@ -5,17 +5,31 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# --- Room Database Protection ---
+# Room uses reflection to access your entity classes.
+# We must keep the classes and their members (fields).
+-keep @androidx.room.Entity class * { *; }
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Dao interface * { *; }
+-keep @androidx.room.TypeConverter class * { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# --- Gson Protection ---
+# If you use Gson to serialize/deserialize classes, keep them.
+# Adjust the package name to match your data models.
+-keep class com.context.data.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class sun.misc.Unsafe { *; }
+-keep class com.google.gson.stream.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# --- Firebase & Crashlytics ---
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends com.google.firebase.messaging.FirebaseMessagingService
+
+# --- Hilt / Dagger ---
+-keep class dagger.hilt.** { *; }
+-keep class com.google.dagger.** { *; }
+
+# --- General Polish ---
+-dontwarn okio.**
+-dontwarn javax.annotation.**

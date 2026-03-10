@@ -2,7 +2,10 @@ package com.context.app
 
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
@@ -13,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.context.ui.*
 import com.context.utils.OnboardingUtils
+import com.context.utils.SecurityUtils
 
 @Composable
 fun AppNavigation() {
@@ -20,6 +24,13 @@ fun AppNavigation() {
     val navController = rememberNavController()
 
     val isFirstRun = remember { OnboardingUtils.isFirstRun(context) }
+    var isAuthenticated by remember { mutableStateOf(!SecurityUtils.isSecurityEnabled(context)) }
+
+    if (!isAuthenticated) {
+        LockScreen(onAuthenticated = { isAuthenticated = true })
+        return
+    }
+
     val startDestination = if (isFirstRun) "welcome" else "main"
 
     NavHost(navController = navController, startDestination = startDestination) {

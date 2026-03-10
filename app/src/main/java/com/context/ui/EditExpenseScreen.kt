@@ -1,6 +1,9 @@
 package com.context.ui
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +50,9 @@ fun EditExpenseScreen(
     var selectedCategory by remember { mutableStateOf("") }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
     val categories = remember { CategoryUtils.categories }
+
+    // Split Calculation
+    val amountDouble = amount.toDoubleOrNull() ?: 0.0
 
     // LOAD DATA
     LaunchedEffect(expenseId) {
@@ -176,6 +182,21 @@ fun EditExpenseScreen(
                     groups.forEach { group ->
                         DropdownMenuItem(text = { Text(group.name) }, onClick = { selectedGroup = group; isGroupDropdownExpanded = false })
                     }
+                }
+            }
+
+            // DYNAMIC SPLIT PREVIEW (Updated to match AddExpenseScreen)
+            AnimatedVisibility(
+                visible = selectedGroup != null && amountDouble > 0,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SplitPreviewCard(
+                        members = selectedGroup?.getMemberList() ?: emptyList(),
+                        totalAmount = amountDouble
+                    )
                 }
             }
 

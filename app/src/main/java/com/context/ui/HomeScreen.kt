@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -193,6 +194,7 @@ fun HomeScreen(
                         "Spend Analysis",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -213,7 +215,8 @@ fun HomeScreen(
                     Text(
                         text = "My Groups",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -272,7 +275,8 @@ fun HomeScreen(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     TextButton(onClick = onViewAllClick) {
                         Text("View All")
@@ -356,17 +360,18 @@ fun TimeRangeFilter(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onPrevious) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Previous")
+                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
                 }
 
                 Text(
                     text = navigatorLabel,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 IconButton(onClick = onNext) {
-                    Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next")
+                    Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
         }
@@ -378,7 +383,7 @@ fun Expense.toTransactionDetails(): TransactionDetails {
     return TransactionDetails(
         merchant = this.merchant,
         dateTime = sdf.format(this.timestamp),
-        amount = this.amount.toString(),
+        amount = String.format("%.2f", this.amount),
         type = TransactionType.EXPENSE,
         category = this.category,
         source = if (this.isAuto) TransactionSource.AUTO_DETECTED else TransactionSource.MANUAL,
@@ -399,11 +404,13 @@ private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
         Text(
             text = "$greetingTime, $name",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Image(
             imageVector = Icons.Default.Settings,
             contentDescription = "Settings",
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
@@ -512,8 +519,7 @@ private fun BalanceSummaryCard(
                     Text(
                         text = comparisonText.first,
                         color = comparisonText.second ?: Color.White,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                        style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -536,8 +542,8 @@ private fun ChartLegend(expenses: List<Expense>, modifier: Modifier = Modifier) 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                 Box(modifier = Modifier.size(12.dp).background(style.color, CircleShape))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(category, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Text("${String.format("%.1f", percentage)}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(category, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
+                Text("${String.format("%.1f", percentage)}%", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -571,6 +577,7 @@ private fun GroupsList(groups: List<Group>, expenses: List<Expense>, onGroupClic
 @Composable
 private fun NewGroupCard(onClick: () -> Unit) {
     val stroke = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+    val onSurface = MaterialTheme.colorScheme.onSurface
     Card(onClick = onClick, modifier = Modifier.height(140.dp).width(120.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Box(
             modifier = Modifier
@@ -578,12 +585,12 @@ private fun NewGroupCard(onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()){
-                drawRoundRect(color = Color.LightGray, style = stroke, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+                drawRoundRect(color = onSurface.copy(alpha = 0.3f), style = stroke, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(Icons.Default.Add, contentDescription = "New Group", tint = Color.Gray)
+                Icon(Icons.Default.Add, contentDescription = "New Group", tint = onSurface.copy(alpha = 0.6f))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("New Group", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                Text("New Group", color = onSurface.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -598,7 +605,14 @@ private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Uni
         Color(0xFFFFF0E5), // Pastel Orange
         Color(0xFFE8F5E9)  // Pastel Green
     )
-    val cardColor = pastelColors[groupName.hashCode() % pastelColors.size]
+    
+    // Safety check for empty list and use abs() to ensure positive index
+    val cardColor = if (pastelColors.isNotEmpty()) {
+        val index = abs(groupName.hashCode() % pastelColors.size)
+        pastelColors[index]
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
 
     Card(
         modifier = Modifier
@@ -617,11 +631,13 @@ private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Uni
                 text = groupName,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleSmall,
+                color = Color(0xFF1A1A1A), // Keep text dark on light pastel background
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = "₹${totalAmount.toInt()}",
                 fontWeight = FontWeight.Bold,
+                color = Color(0xFF1A1A1A), // Keep text dark on light pastel background
                 style = MaterialTheme.typography.bodyLarge
             )
         }

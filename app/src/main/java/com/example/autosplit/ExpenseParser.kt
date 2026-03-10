@@ -18,7 +18,6 @@ object ExpenseParser {
     fun parse(text: String): ParsedExpense? {
         // 1. VALIDATE: Only proceed if it passes the strict check
         if (!isValidTransaction(text)) {
-            Log.d("SplitMate", "Ignored Non-Transactional Message: $text")
             return null
         }
 

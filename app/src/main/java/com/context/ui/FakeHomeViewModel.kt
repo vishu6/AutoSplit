@@ -19,12 +19,14 @@ class FakeExpenseDao : ExpenseDao {
     override fun getTotalSpent(): Flow<Double?> = MutableStateFlow(0.0)
     override fun getGroupTotal(groupId: Int): Flow<Double?> = MutableStateFlow(0.0)
     override suspend fun insert(expense: Expense) {}
+    override suspend fun insertAll(expenses: List<Expense>) {}
     override suspend fun insertGroup(group: Group): Long = 0L
     override suspend fun delete(expense: Expense) {}
     override suspend fun deleteGroup(group: Group) {}
     override suspend fun update(expense: Expense) {}
     override suspend fun recalculateGroupTotal(groupId: Int) {}
     override suspend fun checkDuplicate(amount: Double, timeThreshold: Long): Int = 0
+    override suspend fun checkDuplicateStrict(merchant: String, amount: Double, startTime: Long, endTime: Long): Int = 0
 }
 
 /**
