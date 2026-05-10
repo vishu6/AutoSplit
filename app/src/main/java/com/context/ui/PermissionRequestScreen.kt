@@ -99,7 +99,7 @@ fun PermissionRequestScreen() {
 
             // Body Text
             Text(
-                text = "Context needs permission to read payment notifications from GPay/PhonePe. We strictly process this locally. Your financial data never leaves your phone.",
+                text = "Cleave needs permission to read payment notifications from apps like GPay, PhonePe, and Messaging apps to automatically track your expenses. This data is processed strictly locally on your device.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = Color.Gray
