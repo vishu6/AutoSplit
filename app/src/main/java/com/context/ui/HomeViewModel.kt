@@ -40,12 +40,30 @@ class HomeViewModel @Inject constructor(
     private val _currentCalendar = MutableStateFlow(Calendar.getInstance())
     val currentCalendar = _currentCalendar.asStateFlow()
 
-    val filteredExpenses = combine(allExpenses, selectedTimeRange, currentCalendar) { expenses, range, calendar ->
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+
+    private val _isSearchActive = MutableStateFlow(false)
+    val isSearchActive = _isSearchActive.asStateFlow()
+
+    val filteredExpenses = combine(
+        allExpenses, 
+        selectedTimeRange, 
+        currentCalendar, 
+        searchQuery, 
+        isSearchActive
+    ) { expenses, range, calendar, query, searchActive ->
         val (start, end) = DateFilterUtils.getTimeRange(range, calendar)
-        if (range == TimeRange.ALL) {
-            expenses
-        } else {
-            expenses.filter { it.timestamp in start..end }
+        
+        expenses.filter { expense ->
+            val matchesTime = if (range == TimeRange.ALL || searchActive) true else expense.timestamp in start..end
+            val matchesSearch = if (searchActive && query.isNotEmpty()) {
+                expense.merchant.contains(query, ignoreCase = true) || 
+                expense.amount.toString().contains(query) ||
+                expense.category.contains(query, ignoreCase = true)
+            } else true
+            
+            matchesTime && matchesSearch
         }
     }.stateIn(
         scope = viewModelScope,
@@ -109,5 +127,16 @@ class HomeViewModel @Inject constructor(
             TimeRange.ALL -> { /* Do nothing */ }
         }
         _currentCalendar.value = newCal
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun setSearchActive(active: Boolean) {
+        _isSearchActive.value = active
+        if (!active) {
+            _searchQuery.value = ""
+        }
     }
 }

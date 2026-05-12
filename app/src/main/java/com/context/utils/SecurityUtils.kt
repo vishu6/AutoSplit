@@ -12,6 +12,7 @@ object SecurityUtils {
     }
 
     fun isSecurityEnabled(context: Context): Boolean {
+        // Defaulting to false. User can enable it in Settings for better privacy.
         return getPrefs(context).getBoolean(SECURITY_ENABLED_KEY, false)
     }
 

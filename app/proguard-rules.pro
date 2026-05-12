@@ -14,11 +14,20 @@
 -keep @androidx.room.TypeConverter class * { *; }
 
 # --- Gson Protection ---
-# If you use Gson to serialize/deserialize classes, keep them.
-# Adjust the package name to match your data models.
--keep class com.context.data.** { *; }
--keepattributes Signature
+# Gson uses generic type information stored in a class file when working with fields.
+# We must keep Signature, InnerClasses, and EnclosingMethod attributes for TypeToken to work.
+-keepattributes Signature, InnerClasses, EnclosingMethod
 -keepattributes *Annotation*
+
+# Keep Gson's own classes
+-keep class com.google.gson.** { *; }
+
+# Keep all data models that are serialized/deserialized
+-keep class com.context.data.** { *; }
+
+# Keep anonymous classes that extend TypeToken (crucial for BudgetUtils)
+-keep class * extends com.google.gson.reflect.TypeToken
+
 -keep class sun.misc.Unsafe { *; }
 -keep class com.google.gson.stream.** { *; }
 

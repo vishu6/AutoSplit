@@ -1,7 +1,9 @@
 package com.context.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -15,9 +17,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
+import com.context.utils.HapticUtils
+import com.context.utils.ReviewManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,18 +96,29 @@ fun SettleUpScreen(
                                     merchant = "Payment from $payerName",
                                     amount = amountVal,
                                     timestamp = System.currentTimeMillis(),
-                                    category = "Settlement", // <--- SPECIAL CATEGORY
+                                    category = "Settlement",
                                     groupId = groupId,
                                     isAuto = false
                                 )
                             )
                             db.expenseDao().recalculateGroupTotal(groupId)
+                            
+                            // Haptic feedback for settlement (Satisfying thud)
+                            HapticUtils.playThud(context)
+                            
+                            // CHECK FOR REVIEW ELIGIBILITY
+                            if (ReviewManager.shouldShowReview(context)) {
+                                context.findActivity()?.let { activity ->
+                                    ReviewManager.launchReviewFlow(activity)
+                                }
+                            }
+                            
                             onSettled()
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)) // Green Button
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
             ) {
                 Icon(Icons.Default.Check, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -112,4 +126,14 @@ fun SettleUpScreen(
             }
         }
     }
+}
+
+// Helper to find Activity from Context
+fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
 }

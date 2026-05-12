@@ -48,6 +48,12 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<Expense>>
+
+    @Query("SELECT COUNT(*) FROM expenses")
+    suspend fun getTransactionCount(): Int
+
+    @Query("SELECT * FROM expenses WHERE timestamp >= :startTime AND category != 'Settlement'")
+    suspend fun getExpensesSince(startTime: Long): List<Expense>
     
     @Query("SELECT SUM(amount) FROM expenses WHERE category != 'Settlement'")
     fun getTotalSpent(): Flow<Double?>

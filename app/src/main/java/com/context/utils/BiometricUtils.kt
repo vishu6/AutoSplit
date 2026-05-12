@@ -43,7 +43,7 @@ object BiometricUtils {
             })
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock Split Mate")
+            .setTitle("Unlock Cleave")
             .setSubtitle("Authenticate to view your expenses")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
             .build()

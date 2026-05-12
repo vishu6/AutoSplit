@@ -1,57 +1,30 @@
 package com.context.ui
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBackIosNew
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFloatingActionButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -61,27 +34,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.context.components.DonutChart
+import com.context.components.UpdateAvailableBanner
 import com.context.data.Expense
 import com.context.data.Group
 import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ContextTheme
 import com.context.ui.theme.ElectricBlue
 import com.context.ui.theme.LightBlue
+import com.context.ui.theme.FintechRed
 import com.context.utils.DateUtils
 import com.context.utils.OnboardingUtils
 import com.context.utils.PermissionUtils
 import com.context.utils.TimeRange
+import com.context.utils.UpdateUtils
+import com.context.utils.HapticUtils
+import com.context.utils.BudgetUtils
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     homeViewModel: HomeViewModel,
@@ -90,7 +71,10 @@ fun HomeScreen(
     onAddExpenseClick: () -> Unit,
     onExpenseClick: (Int) -> Unit,
     onProfileClick: () -> Unit,
-    onViewAllClick: () -> Unit
+    onViewAllClick: () -> Unit,
+    onUpdateClick: () -> Unit,
+    onScanReceiptClick: () -> Unit,
+    onSetBudgetClick: () -> Unit
 ) {
     val transactions by homeViewModel.allExpenses.collectAsState(initial = emptyList())
     val groups by homeViewModel.groups.collectAsState(initial = emptyList())
@@ -99,6 +83,8 @@ fun HomeScreen(
     val filteredExpenses by homeViewModel.filteredExpenses.collectAsState()
     val selectedRange by homeViewModel.selectedTimeRange.collectAsState()
     val currentCalendar by homeViewModel.currentCalendar.collectAsState()
+    val searchQuery by homeViewModel.searchQuery.collectAsState()
+    val isSearchActive by homeViewModel.isSearchActive.collectAsState()
 
     val spendingExpenses = remember(filteredExpenses) {
         filteredExpenses.filter { it.category != "Settlement" }
@@ -106,30 +92,87 @@ fun HomeScreen(
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    
     var showPermissionDialog by remember { mutableStateOf(false) }
+    var showBatteryExplanationDialog by remember { mutableStateOf(false) }
+    var showPermissionBanner by remember { mutableStateOf(false) }
+    var showBatteryBanner by remember { mutableStateOf(false) }
+
     var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
+    
+    // Budget State
+    var isBudgetSet by remember { mutableStateOf(BudgetUtils.isBudgetSet(context)) }
+    var monthlyBudgetValue by remember { mutableStateOf(BudgetUtils.getMonthlyBudget(context)) }
+
+    // FAB State
+    var fabExpanded by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isSearchActive) {
+        homeViewModel.setSearchActive(false)
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 savedName = OnboardingUtils.getUserName(context)
+                isBudgetSet = BudgetUtils.isBudgetSet(context)
+                monthlyBudgetValue = BudgetUtils.getMonthlyBudget(context)
+                
+                // Refresh permission state on resume
+                val notificationEnabled = PermissionUtils.isNotificationServiceEnabled(context)
+                if (!notificationEnabled && !PermissionUtils.isPermanentDismissed(context)) {
+                    val count = PermissionUtils.getNudgeCount(context)
+                    val lastNudge = PermissionUtils.getLastNudgeTimestamp(context)
+                    val diff = System.currentTimeMillis() - lastNudge
+                    val days = TimeUnit.MILLISECONDS.toDays(diff)
+
+                    when {
+                        count == 0 -> showPermissionDialog = true
+                        count < 3 && days >= 7 -> showPermissionDialog = true
+                        count < 3 -> {
+                            showPermissionBanner = !PermissionUtils.isBannerDismissedForCurrentCount(context)
+                        }
+                        else -> {
+                            showPermissionDialog = false
+                            showPermissionBanner = false
+                        }
+                    }
+                    showBatteryBanner = false
+                } else {
+                    showPermissionDialog = false
+                    showPermissionBanner = false
+                    
+                    if (notificationEnabled) {
+                        showBatteryBanner = !PermissionUtils.isBatteryOptimizationIgnored(context) && 
+                                           !PermissionUtils.isBatteryBannerDismissed(context)
+                    } else {
+                        showBatteryBanner = false
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(Unit) {
-        if (!PermissionUtils.isNotificationServiceEnabled(context)) {
-            showPermissionDialog = true
+    // Haptic for search results
+    LaunchedEffect(filteredExpenses.size) {
+        if (isSearchActive && filteredExpenses.isNotEmpty()) {
+            HapticUtils.playTick(context)
         }
     }
 
     if (showPermissionDialog) {
         AlertDialog(
-            onDismissRequest = { /* Do nothing, force them to choose */ },
-            title = { Text("Enable Auto-Tracking") },
-            text = { Text("To automatically track expenses from SMS, Split Mate needs 'Notification Access'. Please turn it on in the next screen.") },
+            onDismissRequest = { /* Do nothing */ },
+            title = { 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.NotificationsActive, null, tint = ElectricBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Enable Auto-Tracking") 
+                }
+            },
+            text = { Text("Cleave can automatically capture expenses from your bank SMS and UPI notifications. This stays 100% private on your device.") },
             confirmButton = {
                 Button(onClick = {
                     showPermissionDialog = false
@@ -139,169 +182,514 @@ fun HomeScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPermissionDialog = false }) {
-                    Text("Later")
+                Row {
+                    if (PermissionUtils.getNudgeCount(context) >= 1) {
+                        TextButton(onClick = {
+                            showPermissionDialog = false
+                            PermissionUtils.setPermanentDismissed(context)
+                        }) {
+                            Text("Don't ask again", color = Color.Gray)
+                        }
+                    }
+                    TextButton(onClick = {
+                        showPermissionDialog = false
+                        PermissionUtils.recordNudgeDismissed(context)
+                        showPermissionBanner = true
+                    }) {
+                        Text("Later")
+                    }
                 }
             }
         )
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            LargeFloatingActionButton(
-                onClick = onAddExpenseClick,
-                shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Expense", tint = Color.White)
-            }
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(bottom = 88.dp)
-        ) {
-            item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    HomeTopBar(name = savedName, onProfileClick = onProfileClick)
-                    Spacer(modifier = Modifier.height(24.dp))
-                    BalanceSummaryCard(
-                        currentAmount = filteredTotalSpent,
-                        previousAmount = previousPeriodTotalSpent,
-                        selectedRange = selectedRange,
-                        calendar = currentCalendar
-                    )
+    if (showBatteryExplanationDialog) {
+        AlertDialog(
+            onDismissRequest = { showBatteryExplanationDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.VerifiedUser, null, tint = ElectricBlue)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Reliable Tracking")
+                }
+            },
+            text = {
+                Text("To ensure Cleave never misses a transaction, it needs permission to stay active in the background. This will provide you with 100% precision without affecting your overall battery life.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showBatteryExplanationDialog = false
+                    PermissionUtils.requestIgnoreBatteryOptimization(context)
+                }) {
+                    Text("Proceed")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatteryExplanationDialog = false }) {
+                    Text("Maybe Later", color = Color.Gray)
                 }
             }
+        )
+    }
 
-            item {
-                TimeRangeFilter(
-                    selectedRange = selectedRange,
-                    onRangeSelected = { homeViewModel.onTimeRangeSelected(it) },
-                    calendar = currentCalendar,
-                    onNext = { homeViewModel.onNextPeriod() },
-                    onPrevious = { homeViewModel.onPreviousPeriod() }
-                )
-            }
-
-            if (spendingExpenses.isNotEmpty()) {
-                item {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        "Spend Analysis",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DonutChart(expenses = spendingExpenses, modifier = Modifier.weight(1f))
-                        Spacer(modifier = Modifier.width(24.dp))
-                        ChartLegend(expenses = spendingExpenses, modifier = Modifier.weight(1f))
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets.systemBars 
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(bottom = 100.dp)
+            ) {
+                if (UpdateUtils.showUpdateBanner && !isSearchActive) {
+                    item {
+                        UpdateAvailableBanner(onUpdateClick = onUpdateClick)
                     }
                 }
-            }
 
-            item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Spacer(modifier = Modifier.height(32.dp))
-                    Text(
-                        text = "My Groups",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                if (showPermissionBanner && !isSearchActive) {
+                    item {
+                        PermissionNudgeBanner(
+                            onEnable = { PermissionUtils.openNotificationSettings(context) },
+                            onDismiss = { 
+                                PermissionUtils.setBannerDismissed(context)
+                                showPermissionBanner = false 
+                            }
+                        )
+                    }
                 }
-            }
 
-            item {
-                GroupsList(
-                    groups = groups,
-                    expenses = transactions, 
-                    onGroupClick = onNavigateToGroup,
-                    onNewGroupClick = onCreateGroupClick
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-            }
+                if (showBatteryBanner && !isSearchActive) {
+                    item {
+                        BatteryOptimizationNudgeBanner(
+                            onFix = { showBatteryExplanationDialog = true },
+                            onDismiss = { 
+                                PermissionUtils.setBatteryBannerDismissed(context, true)
+                                showBatteryBanner = false 
+                            }
+                        )
+                    }
+                }
 
-            item {
-                val title = when (selectedRange) {
-                    TimeRange.TODAY -> {
-                        when {
-                            DateUtils.isToday(currentCalendar) -> "Today's Transactions"
-                            DateUtils.isYesterday(currentCalendar) -> "Yesterday's Transactions"
-                            else -> {
-                                val day = currentCalendar.get(Calendar.DAY_OF_MONTH)
-                                val suffix = DateUtils.getDayOfMonthSuffix(day)
-                                val month = SimpleDateFormat("MMM", Locale.getDefault()).format(currentCalendar.time)
-                                "$month $day$suffix Transactions"
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        HomeTopBar(
+                            name = savedName,
+                            onProfileClick = onProfileClick,
+                            isSearchActive = isSearchActive,
+                            onSearchClick = { 
+                                HapticUtils.playTick(context)
+                                homeViewModel.setSearchActive(true) 
+                            },
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = { homeViewModel.onSearchQueryChanged(it) },
+                            onClearSearch = { homeViewModel.setSearchActive(false) }
+                        )
+
+                        AnimatedVisibility(
+                            visible = !isSearchActive,
+                            enter = fadeIn(animationSpec = tween(500)),
+                            exit = fadeOut(animationSpec = tween(300))
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(24.dp))
+                                BalanceSummaryCard(
+                                    currentAmount = filteredTotalSpent,
+                                    previousAmount = previousPeriodTotalSpent,
+                                    selectedRange = selectedRange,
+                                    calendar = currentCalendar,
+                                    monthlyBudget = if (isBudgetSet) monthlyBudgetValue else null
+                                )
+                                
+                                if (!isBudgetSet && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(currentCalendar)) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    BudgetNudgeBanner(onSetBudgetClick = onSetBudgetClick)
+                                }
                             }
                         }
                     }
-                    TimeRange.WEEK -> if (DateUtils.isThisWeek(currentCalendar)) "This Week's Transactions" else "Week's Transactions"
-                    TimeRange.MONTH -> {
-                        if (DateUtils.isThisMonth(currentCalendar)) {
-                            "This Month's Transactions"
-                        } else {
-                            val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
-                            "${monthFormat.format(currentCalendar.time)}'s Transactions"
+                }
+
+                if (!isSearchActive) {
+                    item {
+                        TimeRangeFilter(
+                            selectedRange = selectedRange,
+                            onRangeSelected = { 
+                                HapticUtils.playTick(context)
+                                homeViewModel.onTimeRangeSelected(it) 
+                            },
+                            calendar = currentCalendar,
+                            onNext = { 
+                                HapticUtils.playTick(context)
+                                homeViewModel.onNextPeriod() 
+                            },
+                            onPrevious = { 
+                                HapticUtils.playTick(context)
+                                homeViewModel.onPreviousPeriod() 
+                            }
+                        )
+                    }
+
+                    if (spendingExpenses.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                "Spend Analysis",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                DonutChart(expenses = spendingExpenses, modifier = Modifier.weight(1f))
+                                Spacer(modifier = Modifier.width(24.dp))
+                                ChartLegend(expenses = spendingExpenses, modifier = Modifier.weight(1f))
+                            }
                         }
                     }
-                    TimeRange.YEAR -> {
-                        if (DateUtils.isThisYear(currentCalendar)) {
-                            "This Year's Transactions"
-                        } else {
-                            val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-                            "${yearFormat.format(currentCalendar.time)}'s Transactions"
+
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Text(
+                                text = "My Groups",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
-                    TimeRange.ALL -> "Recent Transactions"
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    TextButton(onClick = onViewAllClick) {
-                        Text("View All")
+
+                    item {
+                        GroupsList(
+                            groups = groups,
+                            expenses = transactions, 
+                            onGroupClick = { groupId ->
+                                HapticUtils.playTick(context)
+                                onNavigateToGroup(groupId)
+                            },
+                            onNewGroupClick = {
+                                HapticUtils.playTick(context)
+                                onCreateGroupClick()
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
+
+                item {
+                    val title = if (isSearchActive) {
+                        if (searchQuery.isEmpty()) "Recent Transactions" else "Search Results"
+                    } else {
+                        when (selectedRange) {
+                            TimeRange.TODAY -> {
+                                when {
+                                    DateUtils.isToday(currentCalendar) -> "Today's Transactions"
+                                    DateUtils.isYesterday(currentCalendar) -> "Yesterday's Transactions"
+                                    else -> {
+                                        val day = currentCalendar.get(Calendar.DAY_OF_MONTH)
+                                        val suffix = DateUtils.getDayOfMonthSuffix(day)
+                                        val month = SimpleDateFormat("MMM", Locale.getDefault()).format(currentCalendar.time)
+                                        "$month $day$suffix Transactions"
+                                    }
+                                }
+                            }
+                            TimeRange.WEEK -> if (DateUtils.isThisWeek(currentCalendar)) "This Week's Transactions" else "Week's Transactions"
+                            TimeRange.MONTH -> {
+                                if (DateUtils.isThisMonth(currentCalendar)) {
+                                    "This Month's Transactions"
+                                } else {
+                                    val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
+                                    "${monthFormat.format(currentCalendar.time)}'s Transactions"
+                                }
+                            }
+                            TimeRange.YEAR -> {
+                                if (DateUtils.isThisYear(currentCalendar)) {
+                                    "This Year's Transactions"
+                                } else {
+                                    val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
+                                    "${yearFormat.format(currentCalendar.time)}'s Transactions"
+                                }
+                            }
+                            TimeRange.ALL -> "Recent Transactions"
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        if (!isSearchActive) {
+                            TextButton(onClick = onViewAllClick) {
+                                Text("View All")
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (filteredExpenses.isEmpty()) {
+                    item {
+                        EmptyState(isSearching = isSearchActive)
+                    }
+                } else {
+                    items(if (isSearchActive) filteredExpenses else filteredExpenses.take(10)) { expense ->
+                        val details = expense.toTransactionDetails()
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .combinedClickable(
+                                    onClick = { onExpenseClick(expense.id) },
+                                    onLongClick = {
+                                        HapticUtils.playHeavyClick(context)
+                                        onExpenseClick(expense.id)
+                                    }
+                                )
+                        ) {
+                            TransactionItemCard(transaction = details)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+            }
+        }
+
+        // SCRIM
+        if (fabExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { fabExpanded = false }
+            )
+        }
+
+        // FAB
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(16.dp),
+            contentAlignment = Alignment.BottomEnd
+        ) {
+            ExpandableFab(
+                isExpanded = fabExpanded,
+                onMainFabClick = { 
+                    HapticUtils.playTick(context)
+                    fabExpanded = !fabExpanded 
+                },
+                onManualEntryClick = {
+                    HapticUtils.playTick(context)
+                    fabExpanded = false
+                    onAddExpenseClick()
+                },
+                onScanReceiptClick = {
+                    HapticUtils.playTick(context)
+                    fabExpanded = false
+                    onScanReceiptClick()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun PermissionNudgeBanner(onEnable: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = ElectricBlue.copy(alpha = 0.1f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.NotificationsActive, null, tint = ElectricBlue, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Auto-Tracking is off", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Enable to capture UPI payments automatically.", fontSize = 12.sp, color = Color.Gray)
+            }
+            TextButton(onClick = onEnable) {
+                Text("Enable", fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun BatteryOptimizationNudgeBanner(onFix: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = ElectricBlue.copy(alpha = 0.1f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.AutoMode, null, tint = ElectricBlue, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Enhance Tracking Precision", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Ensure Cleave stays active to capture every expense instantly.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            TextButton(onClick = onFix) {
+                Text("Optimize", fontWeight = FontWeight.Bold, color = ElectricBlue)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp), tint = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun BudgetNudgeBanner(onSetBudgetClick: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth().clickable { onSetBudgetClick() }
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("💡", fontSize = 24.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "No budget set yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Know when you're overspending before it's too late.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                "Set Monthly Budget →",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        placeholder = { 
+            Text(
+                text = "Search transactions...",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            ) 
+        },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = ElectricBlue) },
+        trailingIcon = {
+            IconButton(onClick = onClearSearch) {
+                Icon(Icons.Default.Close, contentDescription = "Close Search")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        singleLine = true,
+        maxLines = 1,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = ElectricBlue,
+            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f)
+        )
+    )
+}
+
+@Composable
+fun ExpandableFab(
+    isExpanded: Boolean,
+    onMainFabClick: () -> Unit,
+    onManualEntryClick: () -> Unit,
+    onScanReceiptClick: () -> Unit
+) {
+    val rotation by animateFloatAsState(if (isExpanded) 45f else 0f, label = "Rotate")
+
+    Column(horizontalAlignment = Alignment.End) {
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                ExtendedFloatingActionButton(
+                    onClick = onManualEntryClick,
+                    containerColor = Color.White,
+                    contentColor = ElectricBlue,
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(8.dp),
+                    text = { Text("Manual Entry", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                    icon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                ExtendedFloatingActionButton(
+                    onClick = onScanReceiptClick,
+                    containerColor = Color.White,
+                    contentColor = ElectricBlue,
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(8.dp),
+                    text = { Text("Scan Receipt", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                    icon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) }
+                )
                 Spacer(modifier = Modifier.height(16.dp))
             }
-
-            if (filteredExpenses.isEmpty()) {
-                item {
-                    EmptyState()
-                }
-            } else {
-                items(filteredExpenses.take(10)) { expense ->
-                    val details = expense.toTransactionDetails()
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp)
-                            .clickable { onExpenseClick(expense.id) }
-                    ) {
-                        TransactionItemCard(transaction = details)
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
+        }
+        
+        FloatingActionButton(
+            onClick = onMainFabClick,
+            containerColor = if (isExpanded) Color.White else MaterialTheme.colorScheme.primary,
+            contentColor = if (isExpanded) ElectricBlue else Color.White,
+            shape = CircleShape,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 12.dp)
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.Add,
+                contentDescription = "Menu",
+                modifier = Modifier.rotate(rotation)
+            )
         }
     }
 }
@@ -392,32 +780,67 @@ fun Expense.toTransactionDetails(): TransactionDetails {
 }
 
 @Composable
-private fun HomeTopBar(name: String, onProfileClick: () -> Unit) {
+private fun HomeTopBar(
+    name: String, 
+    onProfileClick: () -> Unit,
+    isSearchActive: Boolean,
+    onSearchClick: () -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit
+) {
     val greetingTime = remember { DateUtils.getGreeting() }
-    Row(
+    
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        contentAlignment = Alignment.CenterStart
     ) {
-        Text(
-            text = "$greetingTime, $name",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Image(
-            imageVector = Icons.Default.Settings,
-            contentDescription = "Settings",
-            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
-                .clickable { onProfileClick() }
-                .padding(8.dp)
-        )
+        if (!isSearchActive) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "$greetingTime, $name",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                Row {
+                    IconButton(onClick = onSearchClick) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    Image(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable { onProfileClick() }
+                            .padding(8.dp)
+                    )
+                }
+            }
+        } else {
+            SearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                onClearSearch = onClearSearch,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -426,7 +849,8 @@ private fun BalanceSummaryCard(
     currentAmount: Double,
     previousAmount: Double,
     selectedRange: TimeRange,
-    calendar: Calendar
+    calendar: Calendar,
+    monthlyBudget: Double? = null
 ) {
     val title = when (selectedRange) {
         TimeRange.TODAY -> {
@@ -459,20 +883,16 @@ private fun BalanceSummaryCard(
         TimeRange.ALL -> "Total Spent All Time"
     }
 
-    // LOGIC FOR COMPARISON TEXT
     val comparisonText: Pair<String, Color?>? = remember(currentAmount, previousAmount, selectedRange, calendar) {
         val dayOfMonth = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
         val isCurrentMonth = DateUtils.isThisMonth(calendar)
         
-        // Case 1: First 3 days of the month (and it's the current month)
         if (selectedRange == TimeRange.MONTH && isCurrentMonth && dayOfMonth <= 3) {
             if (previousAmount > 0) {
                 Pair("Last month total: ₹${String.format("%,.0f", previousAmount)}", Color.White.copy(alpha = 0.8f))
             } else null
-        // Case 2: No data from the last period to compare to
         } else if (previousAmount == 0.0) {
             if (currentAmount > 0) Pair("Start your savings journey! 🚀", Color.White.copy(alpha = 0.8f)) else null
-        // Case 3: Standard comparison
         } else {
             val difference = currentAmount - previousAmount
             val absDiff = abs(difference)
@@ -513,8 +933,40 @@ private fun BalanceSummaryCard(
                     fontSize = 36.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
-                // Show comparison only if the logic provides text
-                if (comparisonText != null && selectedRange != TimeRange.ALL) {
+                
+                // Progress Bar for Budget
+                if (monthlyBudget != null && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(calendar)) {
+                    val progress = (currentAmount / monthlyBudget).coerceIn(0.0, 1.0).toFloat()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Column {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = if (progress > 0.9f) FintechRed else Color.White,
+                            trackColor = Color.White.copy(alpha = 0.2f),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                text = "₹${String.format("%,.0f", currentAmount)} of ₹${String.format("%,.0f", monthlyBudget)}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                
+                if (comparisonText != null && selectedRange != TimeRange.ALL && (monthlyBudget == null || selectedRange != TimeRange.MONTH)) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = comparisonText.first,
@@ -600,13 +1052,12 @@ private fun NewGroupCard(onClick: () -> Unit) {
 @Composable
 private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Unit) {
     val pastelColors = listOf(
-        Color(0xFFE3F2FD), // Pastel Blue
-        Color(0xFFF3E5F5), // Pastel Purple
-        Color(0xFFFFF0E5), // Pastel Orange
-        Color(0xFFE8F5E9)  // Pastel Green
+        Color(0xFFE3F2FD),
+        Color(0xFFF3E5F5),
+        Color(0xFFFFF0E5),
+        Color(0xFFE8F5E9)
     )
     
-    // Safety check for empty list and use abs() to ensure positive index
     val cardColor = if (pastelColors.isNotEmpty()) {
         val index = abs(groupName.hashCode() % pastelColors.size)
         pastelColors[index]
@@ -631,13 +1082,13 @@ private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Uni
                 text = groupName,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF1A1A1A), // Keep text dark on light pastel background
+                color = Color(0xFF1A1A1A),
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = "₹${totalAmount.toInt()}",
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1A1A1A), // Keep text dark on light pastel background
+                color = Color(0xFF1A1A1A),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -645,7 +1096,7 @@ private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Uni
 }
 
 @Composable
-private fun EmptyState() {
+private fun EmptyState(isSearching: Boolean = false) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -655,14 +1106,14 @@ private fun EmptyState() {
     ) {
         Spacer(modifier = Modifier.height(48.dp))
         Icon(
-            imageVector = Icons.Default.AccountBalanceWallet,
+            imageVector = if (isSearching) Icons.Default.SearchOff else Icons.Default.AccountBalanceWallet,
             contentDescription = "Empty",
             modifier = Modifier.size(64.dp),
             tint = Color.LightGray
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "No transactions yet. Tap the '+' button to add your first one!",
+            text = if (isSearching) "No transactions found matching your search." else "No transactions yet. Tap the '+' button to add your first one!",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray,
             textAlign = TextAlign.Center
@@ -681,7 +1132,10 @@ fun HomeScreenWithGroupsPreview() {
             onAddExpenseClick = {}, 
             onExpenseClick = {}, 
             onProfileClick = {}, 
-            onViewAllClick = {}
+            onViewAllClick = {},
+            onUpdateClick = {},
+            onScanReceiptClick = {},
+            onSetBudgetClick = {}
         )
     }
 }

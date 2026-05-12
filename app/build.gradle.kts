@@ -9,14 +9,14 @@ plugins {
 
 android {
     namespace = "com.context.app"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.context.app"
         minSdk = 24
-        targetSdk = 36
-        versionCode = 21
-        versionName = "1.0.5-BETA"
+        targetSdk = 35
+        versionCode = 43
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -91,8 +91,28 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Play Asset Delivery & In-app updates
+    implementation("com.google.android.play:app-update:2.1.0")
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
+    implementation("com.google.android.play:review:2.0.1")
+    implementation("com.google.android.play:review-ktx:2.0.1")
+
+    // Google ML Kit Text Recognition (Updated for 16KB support)
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+
+    // CameraX (Updated for 16KB support)
+    val cameraxVersion = "1.4.0"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("androidx.camera:camera-extensions:$cameraxVersion")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.context.data.ExpenseDatabase
 import com.context.data.Group
+import com.context.utils.HapticUtils
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +76,7 @@ fun CreateGroupScreen(
                 Button(
                     onClick = {
                         if (newMemberName.isNotBlank()) {
+                            HapticUtils.playTick(context)
                             members.add(newMemberName.trim())
                             newMemberName = ""
                         }
@@ -93,7 +95,10 @@ fun CreateGroupScreen(
                     InputChip(
                         selected = true,
                         onClick = { 
-                            if (member != "You") members.remove(member) 
+                            if (member != "You") {
+                                HapticUtils.playTick(context)
+                                members.remove(member)
+                            }
                         },
                         label = { Text(member) },
                         trailingIcon = {
@@ -112,6 +117,7 @@ fun CreateGroupScreen(
                 onClick = {
                     if (groupName.isNotBlank()) {
                         scope.launch {
+                            HapticUtils.playDoubleTick(context)
                             // Join the list into a single string: "You,Rahul,Priya"
                             val membersString = members.joinToString(",")
                             

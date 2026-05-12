@@ -28,7 +28,7 @@ object ShareUtils {
         // Build the text message for the share sheet
         val sb = StringBuilder()
         sb.append("Hey! Here is the split for the ${group.name}. Total: ₹${String.format("%.2f", total)}.\n\n")
-        sb.append("Calculated with Split Mate ⚡")
+        sb.append("Calculated with Cleave")
 
         // Generate the professional receipt image
         val bitmap = createReceiptBitmap(context, group, total, expenses)
@@ -89,7 +89,7 @@ object ShareUtils {
     private fun saveBitmapToCache(context: Context, bitmap: Bitmap): Uri? {
         val imagesFolder = File(context.cacheDir, "images")
         imagesFolder.mkdirs()
-        val file = File(imagesFolder, "split_mate_receipt_${System.currentTimeMillis()}.png")
+        val file = File(imagesFolder, "cleave_receipt_${System.currentTimeMillis()}.png")
         
         return try {
             val stream = FileOutputStream(file)

@@ -1,6 +1,5 @@
 package com.context.ui
 
-import androidx.lifecycle.ViewModel
 import com.context.data.Expense
 import com.context.data.ExpenseDao
 import com.context.data.Group
@@ -27,6 +26,8 @@ class FakeExpenseDao : ExpenseDao {
     override suspend fun recalculateGroupTotal(groupId: Int) {}
     override suspend fun checkDuplicate(amount: Double, timeThreshold: Long): Int = 0
     override suspend fun checkDuplicateStrict(merchant: String, amount: Double, startTime: Long, endTime: Long): Int = 0
+    override suspend fun getExpensesSince(startTime: Long): List<Expense> = emptyList()
+    override suspend fun getTransactionCount(): Int = 0
 }
 
 /**

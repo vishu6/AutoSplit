@@ -1,6 +1,8 @@
 package com.context.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,17 +22,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.context.ui.theme.ContextTheme
+import com.context.utils.HapticUtils
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AllTransactionsScreen(
     homeViewModel: HomeViewModel,
     onBack: () -> Unit,
     onExpenseClick: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     val filteredExpenses by homeViewModel.filteredExpenses.collectAsState()
     val selectedRange by homeViewModel.selectedTimeRange.collectAsState()
     val currentCalendar by homeViewModel.currentCalendar.collectAsState()
@@ -40,7 +45,10 @@ fun AllTransactionsScreen(
             TopAppBar(
                 title = { Text("All Transactions") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        HapticUtils.playTick(context)
+                        onBack()
+                    }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -54,10 +62,19 @@ fun AllTransactionsScreen(
         ) {
             TimeRangeFilter(
                 selectedRange = selectedRange,
-                onRangeSelected = { homeViewModel.onTimeRangeSelected(it) },
+                onRangeSelected = { 
+                    HapticUtils.playTick(context)
+                    homeViewModel.onTimeRangeSelected(it) 
+                },
                 calendar = currentCalendar,
-                onNext = { homeViewModel.onNextPeriod() },
-                onPrevious = { homeViewModel.onPreviousPeriod() }
+                onNext = { 
+                    HapticUtils.playTick(context)
+                    homeViewModel.onNextPeriod() 
+                },
+                onPrevious = { 
+                    HapticUtils.playTick(context)
+                    homeViewModel.onPreviousPeriod() 
+                }
             )
 
             LazyColumn(
@@ -67,7 +84,15 @@ fun AllTransactionsScreen(
             ) {
                 items(filteredExpenses) { expense ->
                     val details = expense.toTransactionDetails()
-                    Column(modifier = Modifier.clickable { onExpenseClick(expense.id) }) {
+                    Column(
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onExpenseClick(expense.id) },
+                            onLongClick = {
+                                HapticUtils.playHeavyClick(context)
+                                onExpenseClick(expense.id)
+                            }
+                        )
+                    ) {
                         TransactionItemCard(transaction = details)
                         Spacer(modifier = Modifier.height(12.dp))
                     }

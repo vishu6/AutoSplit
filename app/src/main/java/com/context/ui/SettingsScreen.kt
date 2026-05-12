@@ -1,8 +1,11 @@
 package com.context.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -16,11 +19,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,17 +37,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.context.app.R
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
 import com.context.utils.OnboardingUtils
 import com.context.utils.SecurityUtils
 import com.context.utils.BiometricUtils
+import com.context.utils.HapticUtils
 import com.context.utils.ThemeUtils
+import com.context.utils.PermissionUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +66,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onBudgetClick: () -> Unit
 ) {
     val context = LocalContext.current
     val db = remember { ExpenseDatabase.getDatabase(context) }
@@ -63,6 +78,9 @@ fun SettingsScreen(
     
     var isSecurityEnabled by remember { mutableStateOf(SecurityUtils.isSecurityEnabled(context)) }
     val canUseBiometrics = remember { BiometricUtils.canAuthenticate(context) }
+
+    var isWeeklySummaryEnabled by remember { mutableStateOf(PermissionUtils.isWeeklySummaryEnabled(context)) }
+    var areNotificationsEnabled by remember { mutableStateOf(PermissionUtils.areNotificationsEnabled(context)) }
     
     val currentThemeMode by ThemeUtils.getThemeModeFlow(context).collectAsState(initial = ThemeUtils.THEME_SYSTEM)
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -71,34 +89,55 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // IMPORT LAUNCHER
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                areNotificationsEnabled = PermissionUtils.areNotificationsEnabled(context)
+                isWeeklySummaryEnabled = PermissionUtils.isWeeklySummaryEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted -> 
+            areNotificationsEnabled = granted
+            if (!granted) {
+                isWeeklySummaryEnabled = false
+                PermissionUtils.setWeeklySummaryEnabled(context, false)
+            }
+        }
+    )
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             scope.launch {
                 val (success, count) = importCsvFromUri(context, it, db)
                 if (success) {
                     if (count > 0) {
+                        HapticUtils.playDoubleTick(context)
                         snackbarHostState.showSnackbar("Successfully imported $count new transactions!")
                     } else {
-                        snackbarHostState.showSnackbar("No new transactions found. All were already present.")
+                        snackbarHostState.showSnackbar("No new transactions found.")
                     }
                 } else {
-                    snackbarHostState.showSnackbar("Error importing data. Check file format.")
+                    snackbarHostState.showSnackbar("Error importing data.")
                 }
             }
         }
     }
 
-    // EXPORT (SAVE TO DEVICE) LAUNCHER
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri?.let {
             scope.launch {
                 val success = saveCsvToUri(context, it, allExpenses)
                 if (success) {
+                    HapticUtils.playDoubleTick(context)
                     snackbarHostState.showSnackbar("Backup saved to device!")
                 } else {
                     snackbarHostState.showSnackbar("Failed to save backup.")
@@ -107,11 +146,7 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        userName = originalUserName
-    }
-
-    val isNameChanged = userName != originalUserName
+    LaunchedEffect(Unit) { userName = originalUserName }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -127,23 +162,15 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(scrollState),
+            modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(scrollState),
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 32.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier.size(80.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
@@ -152,19 +179,9 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxSize(0.9f)
                         )
                     }
-                    
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Text(
-                        text = "Split Mate",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Version 1.0.3 (Beta)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray
-                    )
+                    Text(text = "Cleave", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(text = "Version 1.2.2", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                 }
             }
 
@@ -178,9 +195,7 @@ fun SettingsScreen(
                 value = userName,
                 onValueChange = { userName = it },
                 label = { Text("What should we call you?") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 singleLine = true
             )
             Row(
@@ -189,7 +204,7 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "This name is only stored on your device.",
+                    "Stored only on your device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     modifier = Modifier.weight(1f)
@@ -198,18 +213,16 @@ fun SettingsScreen(
                     onClick = {
                         val finalName = if (userName.isNotBlank()) userName.trim() else "Mate"
                         OnboardingUtils.saveUserName(context, finalName)
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Name updated!")
-                        }
+                        HapticUtils.playTick(context)
+                        scope.launch { snackbarHostState.showSnackbar("Name updated!") }
                     },
-                    enabled = isNameChanged
+                    enabled = userName != originalUserName
                 ) {
                     Text("Save")
                 }
             }
 
             Spacer(Modifier.height(16.dp))
-            
             Divider(thickness = 8.dp, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
 
             SettingsItem(
@@ -220,29 +233,109 @@ fun SettingsScreen(
                     else -> "System Default"
                 },
                 icon = Icons.Default.Palette,
-                onClick = { showThemeDialog = true }
+                onClick = { 
+                    HapticUtils.playTick(context)
+                    showThemeDialog = true 
+                }
             )
 
-            if (canUseBiometrics) {
-                SecurityToggleItem(
-                    title = "App Lock",
-                    subtitle = "Unlock with fingerprint or PIN",
-                    icon = Icons.Default.Fingerprint,
-                    isEnabled = isSecurityEnabled,
-                    onToggle = { enabled ->
+            SecurityToggleItem(
+                title = "App Lock",
+                subtitle = if (canUseBiometrics) "Unlock with fingerprint or PIN" else "Biometrics not available",
+                icon = Icons.Default.Lock,
+                isEnabled = isSecurityEnabled,
+                onToggle = { enabled ->
+                    if (canUseBiometrics) {
+                        HapticUtils.playTick(context)
                         isSecurityEnabled = enabled
                         SecurityUtils.setSecurityEnabled(context, enabled)
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "✨ INTELLIGENCE & ALERTS",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (!PermissionUtils.isNotificationServiceEnabled(context)) {
+                SettingsItem(
+                    icon = Icons.Default.NotificationsOff,
+                    title = "Smart Capture",
+                    subtitle = "Authorize automatic expense capture",
+                    iconTint = MaterialTheme.colorScheme.error,
+                    onClick = {
+                        HapticUtils.playTick(context)
+                        PermissionUtils.openNotificationSettings(context)
+                    }
+                )
+            } else {
+                SettingsItem(
+                    icon = Icons.Default.NotificationsActive,
+                    title = "Smart Capture",
+                    subtitle = "Active — Analyzing incoming payments",
+                    iconTint = Color(0xFF4CAF50), // Green
+                    onClick = {
+                        HapticUtils.playTick(context)
+                        PermissionUtils.openNotificationSettings(context)
                     }
                 )
             }
 
+            ToggleSettingsItem(
+                title = "Weekly Financial Digest",
+                subtitle = "Receive a weekly spend summary notification every Sunday.",
+                icon = Icons.Default.Insights,
+                isEnabled = isWeeklySummaryEnabled,
+                onToggle = { enabled ->
+                    HapticUtils.playTick(context)
+                    if (enabled && !PermissionUtils.areNotificationsEnabled(context)) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            PermissionUtils.openAppNotificationSettings(context)
+                        }
+                    } else {
+                        isWeeklySummaryEnabled = enabled
+                        PermissionUtils.setWeeklySummaryEnabled(context, enabled)
+                    }
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "💰 BUDGETING",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+
+            SettingsItem(
+                title = "Manage Budget",
+                subtitle = "Set total monthly limit and category targets",
+                icon = Icons.Default.Savings,
+                onClick = {
+                    HapticUtils.playTick(context)
+                    onBudgetClick()
+                }
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Divider(thickness = 8.dp, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+
             SettingsItem(
                 title = "Save Backup to Device",
-                subtitle = "Save your data as a .csv file on this phone",
+                subtitle = "Save your data as a .csv file",
                 icon = Icons.Default.FileDownload,
                 onClick = {
+                    HapticUtils.playTick(context)
                     val date = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
-                    exportLauncher.launch("SplitMate_Backup_$date.csv")
+                    exportLauncher.launch("Cleave_Backup_" + date + ".csv")
                 }
             )
 
@@ -251,6 +344,7 @@ fun SettingsScreen(
                 subtitle = "Send your expense history to other apps",
                 icon = Icons.Default.Share,
                 onClick = {
+                    HapticUtils.playTick(context)
                     scope.launch {
                         val csvFile = generateCsvFile(context, allExpenses)
                         if (csvFile != null) {
@@ -272,6 +366,7 @@ fun SettingsScreen(
                 subtitle = "Restore expenses from a backup file",
                 icon = Icons.Default.FileUpload,
                 onClick = {
+                    HapticUtils.playTick(context)
                     importLauncher.launch(arrayOf("text/comma-separated-values", "text/csv", "application/csv"))
                 }
             )
@@ -283,8 +378,8 @@ fun SettingsScreen(
                 onClick = {
                     val intent = Intent(Intent.ACTION_SENDTO).apply {
                         data = Uri.parse("mailto:")
-                        putExtra(Intent.EXTRA_EMAIL, arrayOf("caresplitmate@gmail.com"))
-                        putExtra(Intent.EXTRA_SUBJECT, "Split Mate Bug Report")
+                        putExtra(Intent.EXTRA_EMAIL, arrayOf("support@cleaveapp.in"))
+                        putExtra(Intent.EXTRA_SUBJECT, "Cleave Bug Report")
                     }
                     try { context.startActivity(intent) } catch (e: Exception) {}
                 }
@@ -295,7 +390,7 @@ fun SettingsScreen(
                 subtitle = "View our data handling practices",
                 icon = Icons.Default.Info,
                 onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://sites.google.com/view/split-mate-privacy-policy/home"))
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://sites.google.com/view/cleave-privacy-policy/home"))
                     context.startActivity(intent)
                 }
             )
@@ -303,23 +398,12 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Made with ❤️ in India",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.Gray
-                )
+                Text(text = "Made with ❤️ in India", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "🇮🇳 Atmanirbhar Bharat Initiative",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray.copy(alpha = 0.7f)
-                )
+                Text(text = "🇮🇳 Atmanirbhar Bharat Initiative", style = MaterialTheme.typography.labelSmall, color = Color.Gray.copy(alpha = 0.7f))
             }
         }
     }
@@ -344,9 +428,7 @@ fun SettingsScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text("Close") }
-            }
+            confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("Close") } }
         )
     }
 }
@@ -354,10 +436,7 @@ fun SettingsScreen(
 @Composable
 fun ThemeOption(text: String, isSelected: Boolean, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         RadioButton(selected = isSelected, onClick = onClick)
@@ -366,53 +445,40 @@ fun ThemeOption(text: String, isSelected: Boolean, onClick: () -> Unit) {
     }
 }
 
+private fun String.escapeCsv(): String = "\"" + this.replace("\"", "\"\"") + "\""
+
 private suspend fun saveCsvToUri(context: Context, uri: Uri, expenses: List<Expense>): Boolean = withContext(Dispatchers.IO) {
     try {
         context.contentResolver.openOutputStream(uri)?.use { fos ->
-            fun String.escapeCsv(): String = "\"" + this.replace("\"", "\"\"") + "\""
-            
-            // Header: Date,Time,Merchant,Amount,Category,Group
             val header = "Date,Time,Merchant,Amount,Category,Group\n"
             fos.write(header.toByteArray())
-            
             expenses.forEach { exp ->
                 val date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(exp.timestamp))
                 val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(exp.timestamp))
-                val line = "${date.escapeCsv()},${time.escapeCsv()},${exp.merchant.escapeCsv()},${exp.amount},${exp.category.escapeCsv()},${(exp.groupId ?: "Personal").toString().escapeCsv()}\n"
+                val line = date.escapeCsv() + "," + time.escapeCsv() + "," + exp.merchant.escapeCsv() + "," + exp.amount + "," + exp.category.escapeCsv() + "," + (exp.groupId ?: "Personal").toString().escapeCsv() + "\n"
                 fos.write(line.toByteArray())
             }
             true
         } ?: false
-    } catch (e: Exception) {
-        false
-    }
+    } catch (e: Exception) { false }
 }
 
 private suspend fun generateCsvFile(context: Context, expenses: List<Expense>): File? = withContext(Dispatchers.IO) {
     try {
-        val exportDir = File(context.cacheDir, "exports")
-        if (!exportDir.exists()) exportDir.mkdirs()
-        
-        val file = File(exportDir, "SplitMate_Backup.csv")
-        val fos = FileOutputStream(file)
-        
-        fun String.escapeCsv(): String = "\"" + this.replace("\"", "\"\"") + "\""
-        
-        val header = "Date,Time,Merchant,Amount,Category,Group\n"
-        fos.write(header.toByteArray())
-        
-        expenses.forEach { exp ->
-            val date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(exp.timestamp))
-            val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(exp.timestamp))
-            val line = "${date.escapeCsv()},${time.escapeCsv()},${exp.merchant.escapeCsv()},${exp.amount},${exp.category.escapeCsv()},${(exp.groupId ?: "Personal").toString().escapeCsv()}\n"
-            fos.write(line.toByteArray())
+        val exportDir = File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
+        val file = File(exportDir, "Cleave_Backup.csv")
+        FileOutputStream(file).use { fos ->
+            val header = "Date,Time,Merchant,Amount,Category,Group\n"
+            fos.write(header.toByteArray())
+            expenses.forEach { exp ->
+                val date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(exp.timestamp))
+                val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(exp.timestamp))
+                val line = date.escapeCsv() + "," + time.escapeCsv() + "," + exp.merchant.escapeCsv() + "," + exp.amount + "," + exp.category.escapeCsv() + "," + (exp.groupId ?: "Personal").toString().escapeCsv() + "\n"
+                fos.write(line.toByteArray())
+            }
         }
-        
-        fos.close()
         file
-    } catch (e: Exception) {
-        null
-    }
+    } catch (e: Exception) { null }
 }
 
 private suspend fun importCsvFromUri(context: Context, uri: Uri, db: ExpenseDatabase): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
@@ -420,112 +486,60 @@ private suspend fun importCsvFromUri(context: Context, uri: Uri, db: ExpenseData
         val inputStream = context.contentResolver.openInputStream(uri)
         val reader = inputStream?.bufferedReader()
         val lines = reader?.readLines() ?: emptyList()
-        
         if (lines.isEmpty()) return@withContext Pair(false, 0)
-        
-        // IDENTIFY FORMAT BY HEADER
         val header = lines.firstOrNull()?.lowercase() ?: ""
         val isNewFormat = header.contains("time")
-        
         val newExpenses = mutableListOf<Expense>()
         val dateTimeFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
         val dateFormatOnly = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
         var importedCount = 0
-        
-        // Skip header
         lines.drop(1).forEach { line ->
             val parts = line.split(",").map { it.trim().removeSurrounding("\"") }
-            
-            if (isNewFormat && parts.size >= 4) {
-                // Header: Date,Time,Merchant,Amount,Category,Group
-                val dateStr = parts[0]
-                val timeStr = parts[1]
-                val merchant = parts[2]
-                val amount = parts[3].toDoubleOrNull() ?: 0.0
-                val category = if (parts.size > 4) parts[4] else "Other"
-                
-                val timestamp = try { 
-                    dateTimeFormat.parse("$dateStr $timeStr")?.time ?: dateFormatOnly.parse(dateStr)?.time ?: System.currentTimeMillis()
-                } catch (e: Exception) { 
-                    try { dateFormatOnly.parse(dateStr)?.time ?: System.currentTimeMillis() } catch(e: Exception) { System.currentTimeMillis() }
-                }
-                
-                // DE-DUPLICATION CHECK
-                val isDuplicate = db.expenseDao().checkDuplicateStrict(merchant, amount, timestamp - 1000, timestamp + 1000) > 0
-                
+            if (parts.size >= 3) {
+                val merchant = if (isNewFormat) parts[2] else parts[1]
+                val amount = (if (isNewFormat) parts[3] else parts[2]).toDoubleOrNull() ?: 0.0
+                val category = if (isNewFormat && parts.size > 4) parts[4] else if (!isNewFormat && parts.size > 3) parts[3] else "Other"
+                val timestamp = try {
+                    if (isNewFormat) dateTimeFormat.parse(parts[0] + " " + parts[1])?.time ?: System.currentTimeMillis()
+                    else dateFormatOnly.parse(parts[0])?.time ?: System.currentTimeMillis()
+                } catch (e: Exception) { System.currentTimeMillis() }
+                val isDuplicate = db.expenseDao().checkDuplicateStrict(merchant, amount, timestamp - 5000, timestamp + 5000) > 0
                 if (!isDuplicate) {
-                    newExpenses.add(
-                        Expense(
-                            merchant = merchant,
-                            amount = amount,
-                            timestamp = timestamp,
-                            category = category,
-                            groupId = null,
-                            isAuto = false
-                        )
-                    )
-                    importedCount++
-                }
-            } else if (!isNewFormat && parts.size >= 3) {
-                // Old Header: Date,Merchant,Amount,Category,Group
-                val dateStr = parts[0]
-                val merchant = parts[1]
-                val amount = parts[2].toDoubleOrNull() ?: 0.0
-                val category = if (parts.size > 3) parts[3] else "Other"
-                
-                val timestamp = try { dateFormatOnly.parse(dateStr)?.time ?: System.currentTimeMillis() } catch (e: Exception) { System.currentTimeMillis() }
-                
-                // For old format, we use a wider window (5 mins) since we don't have exact time
-                val isDuplicate = db.expenseDao().checkDuplicateStrict(merchant, amount, timestamp - 300000, timestamp + 300000) > 0
-                if (!isDuplicate) {
-                    newExpenses.add(
-                        Expense(
-                            merchant = merchant,
-                            amount = amount,
-                            timestamp = timestamp,
-                            category = category,
-                            groupId = null,
-                            isAuto = false
-                        )
-                    )
+                    newExpenses.add(Expense(merchant = merchant, amount = amount, timestamp = timestamp, category = category, groupId = null, isAuto = false))
                     importedCount++
                 }
             }
         }
-        
-        if (newExpenses.isNotEmpty()) {
-            db.expenseDao().insertAll(newExpenses)
-        }
+        if (newExpenses.isNotEmpty()) db.expenseDao().insertAll(newExpenses)
         Pair(true, importedCount)
-    } catch (e: Exception) {
-        Pair(false, 0)
-    }
+    } catch (e: Exception) { Pair(false, 0) }
 }
 
 @Composable
-fun SecurityToggleItem(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    isEnabled: Boolean,
+fun SecurityToggleItem(title: String, subtitle: String, icon: ImageVector, isEnabled: Boolean, onToggle: (Boolean) -> Unit) {
+    ListItem(
+        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
+        supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
+        leadingContent = { Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        trailingContent = { Switch(checked = isEnabled, onCheckedChange = onToggle) },
+        modifier = Modifier.clickable { onToggle(!isEnabled) }
+    )
+    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
+
+@Composable
+fun ToggleSettingsItem(
+    title: String, 
+    subtitle: String, 
+    icon: ImageVector, 
+    isEnabled: Boolean, 
     onToggle: (Boolean) -> Unit
 ) {
     ListItem(
         headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
         supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
-        leadingContent = { 
-            Icon(
-                imageVector = icon, 
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            ) 
-        },
-        trailingContent = {
-            Switch(
-                checked = isEnabled,
-                onCheckedChange = onToggle
-            )
-        },
+        leadingContent = { Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        trailingContent = { Switch(checked = isEnabled, onCheckedChange = onToggle) },
         modifier = Modifier.clickable { onToggle(!isEnabled) }
     )
     Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -533,22 +547,17 @@ fun SecurityToggleItem(
 
 @Composable
 fun SettingsItem(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit
+    title: String, 
+    subtitle: String, 
+    icon: ImageVector, 
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    onClick: (() -> Unit)? = null
 ) {
     ListItem(
         headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
         supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
-        leadingContent = { 
-            Icon(
-                imageVector = icon, 
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            ) 
-        },
-        modifier = Modifier.clickable { onClick() }
+        leadingContent = { Icon(imageVector = icon, contentDescription = null, tint = iconTint) },
+        modifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier
     )
     Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
