@@ -1,3 +1,10 @@
 <resources>
-    <string name="app_name">Split Mate</string>
+    <string name="app_name">Cleave</string>
+    <string name="notification_daily_summary_title">Daily Summary</string>
+    <string name="notification_today_label">Today</string>
+    <string name="notification_month_summary_format">This month: %s</string>
+    <string name="notification_action_review">Review</string>
+    <string name="notification_action_later">Later</string>
+    <string name="notification_overspending">Overspending!</string>
+    <string name="notification_illustration_desc">Summary Illustration</string>
 </resources>

@@ -1,14 +1,13 @@
 package com.context.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -25,32 +24,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.context.data.Category
 import com.context.ui.theme.CategoryStyle
 import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ContextTheme
 
-enum class TransactionType { EXPENSE, CREDIT }
-enum class TransactionSource { MANUAL, AUTO_DETECTED }
-
-data class TransactionDetails(
-    val merchant: String,
-    val dateTime: String,
-    val amount: String,
-    val type: TransactionType,
-    val category: String,
-    val source: TransactionSource,
-    val isAuto: Boolean // Add isAuto to the UI model
-)
-
 @Composable
-fun TransactionItemCard(transaction: TransactionDetails) {
+fun TransactionItemCard(
+    transaction: TransactionDetails,
+    isPrivacyMode: Boolean = false,
+    categoryMap: Map<String, Category> = emptyMap()
+) {
     val isSettlement = transaction.category == "Settlement"
 
     val categoryStyle = if (isSettlement) {
-        CategoryStyle(color = Color(0xFFE8F5E9), icon = Icons.Default.CheckCircle) // Green theme
+        CategoryStyle(
+            color = Color(0xFFE8F5E9), 
+            icon = Icons.Default.CheckCircle,
+            boldColor = Color(0xFF2E7D32)
+        )
     } else {
-        CategoryStyling.getStyle(transaction.category)
+        // FIXED: Now uses the categoryMap to resolve custom icons like "Pets"
+        CategoryStyling.getStyle(transaction.category, customCategories = categoryMap)
     }
 
     val amountColor = if (isSettlement) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
@@ -76,7 +71,7 @@ fun TransactionItemCard(transaction: TransactionDetails) {
                 Icon(
                     imageVector = categoryStyle.icon,
                     contentDescription = transaction.category,
-                    tint = if (isSettlement) Color(0xFF2E7D32) else categoryStyle.color,
+                    tint = categoryStyle.boldColor,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -86,7 +81,8 @@ fun TransactionItemCard(transaction: TransactionDetails) {
                     text = transaction.merchant, 
                     style = MaterialTheme.typography.bodyLarge, 
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
                 )
                 Text(
                     text = if (isSettlement) "Repayment" else transaction.dateTime, 
@@ -96,20 +92,22 @@ fun TransactionItemCard(transaction: TransactionDetails) {
             }
 
             Column(horizontalAlignment = Alignment.End) {
+                val amountText = if (isPrivacyMode) "••••" else transaction.amount
                 Text(
-                    text = (if (isSettlement) "+ " else "") + "₹${transaction.amount}",
+                    text = (if (isSettlement) "+ " else "") + "₹$amountText",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     color = amountColor
                 )
                 if (transaction.source == TransactionSource.AUTO_DETECTED && !isSettlement) {
+                    val label = if (transaction.autoSource != null) "via ${transaction.autoSource}" else "Auto-Detected"
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.padding(top = 4.dp)
                     ) {
                         Text(
-                            text = "Auto-Detected",
+                            text = label,
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                             color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -131,23 +129,14 @@ fun TransactionItemCardPreview() {
         type = TransactionType.EXPENSE,
         category = "Food & Drink",
         source = TransactionSource.AUTO_DETECTED,
-        isAuto = true
-    )
-
-    val settlement = TransactionDetails(
-        merchant = "Payment from Alex",
-        dateTime = "Yesterday, 5:45 PM",
-        amount = "500",
-        type = TransactionType.CREDIT, // This can be simplified
-        category = "Settlement",
-        source = TransactionSource.MANUAL,
-        isAuto = false
+        isAuto = true,
+        autoSource = "PhonePe"
     )
     
     ContextTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            TransactionItemCard(transaction = foodExpense)
-            TransactionItemCard(transaction = settlement)
+            TransactionItemCard(transaction = foodExpense, isPrivacyMode = false)
+            TransactionItemCard(transaction = foodExpense, isPrivacyMode = true)
         }
     }
 }

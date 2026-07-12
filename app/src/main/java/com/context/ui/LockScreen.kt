@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.context.utils.BiometricUtils
+import com.context.utils.HapticUtils
 
 @Composable
 fun LockScreen(
@@ -28,7 +29,10 @@ fun LockScreen(
         if (activity != null) {
             BiometricUtils.showBiometricPrompt(
                 activity = activity,
-                onSuccess = onAuthenticated,
+                onSuccess = {
+                    HapticUtils.playDoubleTick(context)
+                    onAuthenticated()
+                },
                 onError = { /* Handle error or show a button to retry */ }
             )
         }
@@ -49,15 +53,16 @@ fun LockScreen(
         )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Split Mate is Locked",
+            text = "Cleave is Locked",
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Use your fingerprint or PIN to unlock",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
         )
         Spacer(modifier = Modifier.height(48.dp))
         Button(
@@ -65,11 +70,18 @@ fun LockScreen(
                 if (activity != null) {
                     BiometricUtils.showBiometricPrompt(
                         activity = activity,
-                        onSuccess = onAuthenticated,
+                        onSuccess = {
+                            HapticUtils.playDoubleTick(context)
+                            onAuthenticated()
+                        },
                         onError = { }
                     )
                 }
-            }
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
         ) {
             Text("Try Again")
         }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cleave Notification Theme - Dark Mode -->
+    <color name="notification_bg">#1A1A1A</color>
+    <color name="notification_text_primary">#FFFFFF</color>
+    <color name="notification_text_secondary">#B0B0B0</color>
+    <color name="fintech_blue">#82B1FF</color>
+    <color name="fintech_red">#FF8A80</color>
+    <color name="fintech_green">#B9F6CA</color>
+</resources>

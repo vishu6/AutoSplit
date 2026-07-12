@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -60,6 +62,8 @@ fun PermissionRequestScreen() {
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
+                Icon(Icons.Default.NotificationsActive, null)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Enable Auto-Tracking", fontWeight = FontWeight.Bold)
             }
         }
@@ -99,7 +103,7 @@ fun PermissionRequestScreen() {
 
             // Body Text
             Text(
-                text = "Split Mate needs permission to read payment notifications from apps like GPay, PhonePe, and Messaging apps to automatically track your expenses. This data is processed strictly locally on your device.",
+                text = "Cleave needs permission to read payment notifications from apps like GPay, PhonePe, and Messaging apps to automatically track your expenses. This data is processed strictly locally on your device.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = Color.Gray
