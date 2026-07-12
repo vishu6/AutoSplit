@@ -2,6 +2,7 @@
   "project_info": {
     "project_number": "936293939340",
     "project_id": "autosplit-fdf12",
+    "firebase_url": "https://autosplit-fdf12-default-rtdb.firebaseio.com",
     "storage_bucket": "autosplit-fdf12.firebasestorage.app"
   },
   "client": [

@@ -24,13 +24,19 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
+import com.context.sync.GroupSyncManager
 import com.context.ui.*
 import com.context.utils.*
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.install.model.AppUpdateType
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
-fun AppNavigation(appUpdateManager: AppUpdateManager) {
+fun AppNavigation(
+    appUpdateManager: AppUpdateManager,
+    groupSyncManager: GroupSyncManager = hiltViewModel<HomeViewModel>().groupSyncManager
+) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -43,25 +49,35 @@ fun AppNavigation(appUpdateManager: AppUpdateManager) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    // Listen for global join events (via deep links or manual join)
+    LaunchedEffect(Unit) {
+        groupSyncManager.joinEvents.collectLatest { (groupId, groupName) ->
+            if (groupId != 0) {
+                // Navigate to the joined group
+                navController.navigate("group_detail/$groupId") {
+                    launchSingleTop = true
+                }
+                // Show success feedback
+                toaster.show("Joined group: $groupName")
+            }
+        }
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted ->
             if (!isGranted) {
-                // If user denies, we disable weekly summary to keep UI in sync with reality
                 PermissionUtils.setWeeklySummaryEnabled(context, false)
             }
         }
     )
 
-    // Handle weekly summary permission when home screen is reached
     LaunchedEffect(isAuthenticated, currentRoute) {
-        // We only prompt when the user is authenticated AND has reached the home screen
         if (isAuthenticated && currentRoute == "home" && PermissionUtils.isWeeklySummaryEnabled(context)) {
             if (!PermissionUtils.areNotificationsEnabled(context)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
-                    // On older versions, if they're off, we just turn off our toggle
                     PermissionUtils.setWeeklySummaryEnabled(context, false)
                 }
             }
@@ -184,6 +200,9 @@ fun AppNavigation(appUpdateManager: AppUpdateManager) {
                                 type = NavType.BoolType
                                 defaultValue = false
                             }
+                        ),
+                        deepLinks = listOf(
+                            navDeepLink { uriPattern = "cleave://add" }
                         )
                     ) { backStackEntry ->
                         val startWithScanner = backStackEntry.arguments?.getBoolean("scan") ?: false
@@ -212,7 +231,6 @@ fun AppNavigation(appUpdateManager: AppUpdateManager) {
                     ) { backStackEntry ->
                         val groupId = backStackEntry.arguments?.getInt("groupId") ?: 0
                         SettleUpScreen(
-                            groupId = groupId,
                             onBack = { navController.popBackStack() },
                             onSettled = { navController.popBackStack() }
                         )
@@ -221,12 +239,19 @@ fun AppNavigation(appUpdateManager: AppUpdateManager) {
                     composable("settings") {
                         SettingsScreen(
                             onBack = { navController.popBackStack() },
-                            onBudgetClick = { navController.navigate("budget_setup") }
+                            onBudgetClick = { navController.navigate("budget_setup") },
+                            onManageCategoriesClick = { navController.navigate("manage_categories") }
                         )
                     }
 
                     composable("budget_setup") {
                         BudgetSetupScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("manage_categories") {
+                        ManageCategoriesScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }

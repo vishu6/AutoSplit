@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -411,11 +412,15 @@ private fun PersonalizationScreen(
             color = OnboardingTeal
         )
         Spacer(modifier = Modifier.height(16.dp))
+        
+        val budgetStyle = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+        
         OutlinedTextField(
             value = budget,
             onValueChange = { if (it.all { c -> c.isDigit() }) onBudgetChange(it) },
-            prefix = { Text("₹ ") },
-            placeholder = { Text("0") },
+            textStyle = budgetStyle,
+            prefix = { Text("₹", style = budgetStyle, modifier = Modifier.padding(end = 16.dp)) },
+            placeholder = { Text("0", style = budgetStyle, color = Color.LightGray) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -486,6 +491,21 @@ private fun OnboardingBottomNav(
                     fontSize = 14.sp
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Preview(showBackground = true)
+@Composable
+fun PreviewOnboardingBottomNav() {
+    ContextTheme {
+        val pagerState = rememberPagerState(pageCount = { 5 })
+        Box(modifier = Modifier.background(OnboardingTeal)) {
+            OnboardingBottomNav(
+                pagerState = pagerState,
+                onNext = {}
+            )
         }
     }
 }

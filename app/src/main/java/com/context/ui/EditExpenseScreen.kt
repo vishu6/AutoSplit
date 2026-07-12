@@ -6,6 +6,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
@@ -18,11 +19,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.context.data.Category
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
 import com.context.data.Group
@@ -43,7 +47,8 @@ import java.util.Locale
 fun EditExpenseScreen(
     expenseId: Int,
     onBack: () -> Unit,
-    onExpenseUpdated: () -> Unit
+    onExpenseUpdated: () -> Unit,
+    viewModel: EditExpenseViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -62,14 +67,14 @@ fun EditExpenseScreen(
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedTimestamp)
 
     // Group Selector State
-    val groups by db.expenseDao().getAllGroups().collectAsState(initial = emptyList())
+    val groups by viewModel.allGroups.collectAsState()
     var selectedGroup by remember { mutableStateOf<Group?>(null) }
     var isGroupDropdownExpanded by remember { mutableStateOf(false) }
 
-    // Category Selector State
-    var selectedCategory by remember { mutableStateOf("") }
+    // Category Selector State (Dynamic)
+    val categories by viewModel.allCategories.collectAsState()
+    var selectedCategoryName by remember { mutableStateOf("") }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
-    val categories = remember { CategoryUtils.categories }
 
     // Paid By State
     var paidBy by remember { mutableStateOf("You") }
@@ -83,9 +88,9 @@ fun EditExpenseScreen(
         val exp = db.expenseDao().getExpenseById(expenseId)
         if (exp != null) {
             existingExpense = exp
-            amount = exp.amount.toString().replace(".0", "") // Clean format
+            amount = exp.amount.toString().replace(".0", "")
             description = exp.merchant
-            selectedCategory = exp.category
+            selectedCategoryName = exp.category
             selectedTimestamp = exp.timestamp
             paidBy = exp.paidBy
         }
@@ -102,10 +107,8 @@ fun EditExpenseScreen(
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(onClick = {
-                    selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
-                    showDatePicker = false
-                }) { Text("OK") }
+                selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                showDatePicker = false
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -126,15 +129,9 @@ fun EditExpenseScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        scope.launch {
-                            existingExpense?.let { expenseToDelete ->
-                                val groupId = expenseToDelete.groupId
-                                db.expenseDao().delete(expenseToDelete)
-                                groupId?.let { db.expenseDao().recalculateGroupTotal(it) }
-                                
-                                // Haptic feedback for deletion
-                                HapticUtils.playHeavyClick(context)
-                            }
+                        existingExpense?.let { expenseToDelete ->
+                            viewModel.deleteExpense(expenseToDelete)
+                            HapticUtils.playHeavyClick(context)
                             toaster.show("Deleted")
                             onExpenseUpdated()
                         }
@@ -145,17 +142,15 @@ fun EditExpenseScreen(
             )
         }
     ) { padding ->
-        // Use a Column for the whole screen
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .imePadding() // Pushes everything up when keyboard opens
+                .imePadding()
         ) {
-            // Scrollable Content area takes up available space
             Column(
                 modifier = Modifier
-                    .weight(1f) // Fills space above the button
+                    .weight(1f)
                     .verticalScroll(scrollState)
                     .padding(16.dp)
             ) {
@@ -177,7 +172,7 @@ fun EditExpenseScreen(
                         description = it
                         val predicted = CategoryEngine.predictCategory(it)
                         if (predicted != ExpenseCategory.OTHER) {
-                            selectedCategory = predicted.label
+                            selectedCategoryName = predicted.label
                         }
                     },
                     label = { Text("Description") },
@@ -211,14 +206,21 @@ fun EditExpenseScreen(
                     expanded = isCategoryDropdownExpanded,
                     onExpandedChange = { isCategoryDropdownExpanded = it }
                 ) {
+                    val currentCategoryObj = categories.find { it.name == selectedCategoryName }
+                    // FIXED: Use named arguments to avoid parameter shift error
+                    val style = CategoryStyling.getStyle(
+                        categoryName = selectedCategoryName,
+                        customColorHex = currentCategoryObj?.colorHex,
+                        customIconName = currentCategoryObj?.iconName
+                    )
+                    
                     OutlinedTextField(
-                        value = selectedCategory,
+                        value = selectedCategoryName,
                         onValueChange = {},
                         label = { Text("Category") },
                         readOnly = true,
                         leadingIcon = {
-                            val style = CategoryStyling.getStyle(selectedCategory)
-                            Icon(style.icon, contentDescription = null, tint = style.color)
+                            Icon(style.icon, contentDescription = null, tint = style.boldColor)
                         },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isCategoryDropdownExpanded) },
                         modifier = Modifier.fillMaxWidth().menuAnchor()
@@ -228,12 +230,17 @@ fun EditExpenseScreen(
                         onDismissRequest = { isCategoryDropdownExpanded = false }
                     ) {
                         categories.forEach { category ->
-                            val style = CategoryStyling.getStyle(category)
+                            // FIXED: Use named arguments to avoid parameter shift error
+                            val itemStyle = CategoryStyling.getStyle(
+                                categoryName = category.name,
+                                customColorHex = category.colorHex,
+                                customIconName = category.iconName
+                            )
                             DropdownMenuItem(
-                                text = { Text(category) },
-                                leadingIcon = { Icon(style.icon, contentDescription = null, tint = style.color) },
+                                text = { Text(category.name) },
+                                leadingIcon = { Icon(itemStyle.icon, contentDescription = null, tint = itemStyle.boldColor) },
                                 onClick = { 
-                                    selectedCategory = category 
+                                    selectedCategoryName = category.name 
                                     isCategoryDropdownExpanded = false
                                 }
                             )
@@ -312,6 +319,7 @@ fun EditExpenseScreen(
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(24.dp))
+                        // NOTE: SplitPreviewCard is defined in AddExpenseScreen.kt and shared within this package
                         SplitPreviewCard(
                             members = selectedGroup?.getMemberList() ?: emptyList(),
                             totalAmount = amountDouble,
@@ -321,43 +329,32 @@ fun EditExpenseScreen(
                 }
             }
 
-            // Fixed Button at bottom (Outside the scrollable Column)
             Surface(
                 tonalElevation = 2.dp,
                 shadowElevation = 8.dp
             ) {
                 Button(
                     onClick = {
-                        scope.launch {
-                            val amtVal = amount.toDoubleOrNull() ?: 0.0
-                            if (amtVal > 0) {
-                                existingExpense?.let { oldExp ->
-                                    val oldGroupId = oldExp.groupId
-                                    val updatedExp = oldExp.copy(
-                                        amount = amtVal,
-                                        merchant = description,
-                                        timestamp = selectedTimestamp,
-                                        groupId = selectedGroup?.groupId,
-                                        category = selectedCategory,
-                                        paidBy = if (selectedGroup == null) "You" else paidBy
-                                    )
-                                    db.expenseDao().update(updatedExp)
-                                    updatedExp.groupId?.let { db.expenseDao().recalculateGroupTotal(it) }
-                                    if (oldGroupId != updatedExp.groupId) {
-                                        oldGroupId?.let { db.expenseDao().recalculateGroupTotal(it) }
-                                    }
-                                    
-                                    // Haptic feedback for update success
-                                    HapticUtils.playDoubleTick(context)
-                                    
-                                    // Check budget thresholds
-                                    BudgetUtils.checkAndNotifyBudget(context)
-
-                                    onExpenseUpdated()
-                                }
-                            } else {
-                                toaster.show("Enter a valid amount")
+                        val amtVal = amount.toDoubleOrNull() ?: 0.0
+                        if (amtVal > 0) {
+                            existingExpense?.let { oldExp ->
+                                val oldGroupId = oldExp.groupId
+                                val updatedExp = oldExp.copy(
+                                    amount = amtVal,
+                                    merchant = description,
+                                    timestamp = selectedTimestamp,
+                                    groupId = selectedGroup?.groupId,
+                                    category = selectedCategoryName,
+                                    paidBy = if (selectedGroup == null) "You" else paidBy
+                                )
+                                viewModel.updateExpense(updatedExp, oldGroupId)
+                                
+                                HapticUtils.playDoubleTick(context)
+                                BudgetUtils.checkAndNotifyBudget(context)
+                                onExpenseUpdated()
                             }
+                        } else {
+                            toaster.show("Enter a valid amount")
                         }
                     },
                     modifier = Modifier

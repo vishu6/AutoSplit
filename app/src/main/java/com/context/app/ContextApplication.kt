@@ -2,6 +2,7 @@ package com.context.app
 
 import android.app.Application
 import androidx.work.*
+import com.context.service.DailySummaryWorker
 import com.context.service.WeeklySummaryWorker
 import com.context.utils.ReviewManager
 import dagger.hilt.android.HiltAndroidApp
@@ -15,6 +16,41 @@ class ContextApplication : Application() {
         super.onCreate()
         ReviewManager.init(this)
         scheduleWeeklySummary()
+        scheduleDailySummary()
+    }
+
+    private fun scheduleDailySummary() {
+        val workManager = WorkManager.getInstance(this)
+
+        // Calculate delay until 10 PM today
+        val dueDate = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 22)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+        }
+        val currentDate = Calendar.getInstance()
+
+        // If it's already past 10 PM, schedule for tomorrow
+        if (dueDate.before(currentDate)) {
+            dueDate.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        val initialDelay = dueDate.timeInMillis - currentDate.timeInMillis
+
+        val dailyWorkRequest = PeriodicWorkRequestBuilder<DailySummaryWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresBatteryNotLow(true)
+                    .build()
+            )
+            .build()
+
+        workManager.enqueueUniquePeriodicWork(
+            "daily_spend_summary",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            dailyWorkRequest
+        )
     }
 
     private fun scheduleWeeklySummary() {

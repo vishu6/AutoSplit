@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <application
         android:name=".ContextApplication"
@@ -21,14 +22,40 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Context">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Context">
+            android:theme="@style/Theme.Context"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Custom URI Scheme: Quick Add via Widget -->
+            <intent-filter android:label="Add Expense">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cleave" android:host="add" />
+            </intent-filter>
+
+            <!-- Custom URI Scheme: Join Cleave Group -->
+            <intent-filter android:label="Join Cleave Group">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cleave" android:host="join" />
+            </intent-filter>
+
+            <!-- Web Links: WhatsApp/Browser integration -->
+            <intent-filter android:autoVerify="true" android:label="Join Cleave Group">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="autosplit-fdf12.web.app" android:pathPrefix="/join" />
+                <data android:scheme="https" android:host="autosplit-fdf12.firebaseapp.com" android:pathPrefix="/join" />
             </intent-filter>
         </activity>
 
@@ -40,6 +67,20 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver android:name="com.context.service.NotificationDismissReceiver" android:exported="false" />
+
+        <receiver
+            android:name=".widget.BudgetWidgetReceiver"
+            android:exported="true"
+            android:label="Cleave Budget">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/budget_widget_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

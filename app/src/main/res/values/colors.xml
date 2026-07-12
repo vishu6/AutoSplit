@@ -7,4 +7,12 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Cleave Notification Theme - Light Mode -->
+    <color name="notification_bg">#FFFFFF</color>
+    <color name="notification_text_primary">#1A1A1A</color>
+    <color name="notification_text_secondary">#757575</color>
+    <color name="fintech_blue">#2962FF</color>
+    <color name="fintech_red">#D32F2F</color>
+    <color name="fintech_green">#388E3C</color>
 </resources>

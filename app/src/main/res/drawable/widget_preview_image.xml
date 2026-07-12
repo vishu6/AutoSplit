@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Main Background Card -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFF" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+
+    <!-- Header label (Remaining) -->
+    <item android:top="20dp" android:left="20dp">
+        <shape android:shape="rectangle">
+            <size android:width="48dp" android:height="6dp" />
+            <solid android:color="#809E9E9E" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- Top Right FAB Mock (Blue Square with +) -->
+    <item android:top="16dp" android:right="16dp" android:gravity="top|right">
+        <shape android:shape="rectangle">
+            <size android:width="30dp" android:height="30dp" />
+            <solid android:color="#2962FF" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+
+    <!-- Main Amount: ₹•••• -->
+    <item android:top="40dp" android:left="20dp">
+        <shape android:shape="rectangle">
+            <size android:width="70dp" android:height="20dp" />
+            <solid android:color="#1A1A1A" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+
+    <!-- Progress Bar Track -->
+    <item android:top="72dp" android:left="20dp" android:right="20dp">
+        <shape android:shape="rectangle">
+            <size android:height="10dp" />
+            <solid android:color="#1A2962FF" />
+            <corners android:radius="5dp" />
+        </shape>
+    </item>
+
+    <!-- Progress Bar Fill -->
+    <item android:top="72dp" android:left="20dp" android:right="140dp">
+        <shape android:shape="rectangle">
+            <size android:height="10dp" />
+            <solid android:color="#2962FF" />
+            <corners android:radius="5dp" />
+        </shape>
+    </item>
+
+    <!-- Sub-labels (Spent and %) -->
+    <item android:top="88dp" android:left="20dp">
+        <shape android:shape="rectangle">
+            <size android:width="40dp" android:height="4dp" />
+            <solid android:color="#809E9E9E" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item android:top="88dp" android:right="20dp" android:gravity="top|right">
+        <shape android:shape="rectangle">
+            <size android:width="15dp" android:height="4dp" />
+            <solid android:color="#809E9E9E" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- RECENT Section -->
+    <item android:top="108dp" android:left="20dp">
+        <shape android:shape="rectangle">
+            <size android:width="35dp" android:height="6dp" />
+            <solid android:color="#2962FF" />
+            <corners android:radius="1dp" />
+        </shape>
+    </item>
+
+    <!-- Recent Item Mockup -->
+    <item android:top="124dp" android:left="20dp" android:right="20dp">
+        <shape android:shape="rectangle">
+            <size android:height="12dp" />
+            <solid android:color="#F5F7FA" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+</layer-list>
