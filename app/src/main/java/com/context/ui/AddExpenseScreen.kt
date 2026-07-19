@@ -25,13 +25,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.context.data.Expense
 import com.context.data.ExpenseDatabase
 import com.context.data.Group
 import com.context.ui.theme.CategoryStyling
 import com.context.utils.BudgetUtils
 import com.context.utils.CategoryEngine
-import com.context.utils.CategoryUtils
 import com.context.utils.ExpenseCategory
 import com.context.utils.HapticUtils
 import com.context.utils.LocalToaster
@@ -40,18 +40,19 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(
     startWithScanner: Boolean = false,
     onBack: () -> Unit,
-    onExpenseAdded: () -> Unit
+    onExpenseAdded: () -> Unit,
+    viewModel: AddExpenseViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
-    val db = remember { ExpenseDatabase.getDatabase(context) }
     val scrollState = rememberScrollState()
 
     // -- STATE --
@@ -63,15 +64,24 @@ fun AddExpenseScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedTimestamp)
 
-    // Category State
-    var selectedCategory by remember { mutableStateOf("Other") }
+    // Category State (Dynamic)
+    val categories by viewModel.allCategories.collectAsState()
+    var selectedCategoryName by remember { mutableStateOf("Other") }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
-    val categories = remember { CategoryUtils.categories }
 
     // Group Selection State
-    val groups by db.expenseDao().getAllGroups().collectAsState(initial = emptyList())
+    val groups by viewModel.allGroups.collectAsState()
     var selectedGroup by remember { mutableStateOf<Group?>(null) }
     var isGroupDropdownExpandedForGroups by remember { mutableStateOf(false) }
+
+    // Active Members State (Filtered)
+    val activeMembers by remember(selectedGroup) {
+        if (selectedGroup != null) {
+            viewModel.getActiveMembers(selectedGroup!!.groupId)
+        } else {
+            kotlinx.coroutines.flow.flowOf(listOf("You"))
+        }
+    }.collectAsState(initial = listOf("You"))
 
     // Paid By State
     var paidBy by remember { mutableStateOf("You") }
@@ -106,7 +116,7 @@ fun AddExpenseScreen(
     if (showAssignment) {
         ReceiptAssignmentScreen(
             items = detectedItems,
-            members = selectedGroup?.getMemberList() ?: listOf("You"),
+            members = activeMembers,
             onComplete = { total ->
                 amount = String.format("%.2f", total)
                 showAssignment = false
@@ -120,10 +130,8 @@ fun AddExpenseScreen(
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(onClick = {
-                    selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
-                    showDatePicker = false
-                }) { Text("OK") }
+                selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                showDatePicker = false
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -150,8 +158,8 @@ fun AddExpenseScreen(
                 .padding(padding)
                 .padding(16.dp)
                 .fillMaxSize()
-                .imePadding() // Ensures keyboard doesn't hide content
-                .verticalScroll(scrollState), // Added vertical scroll
+                .imePadding()
+                .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
@@ -174,7 +182,7 @@ fun AddExpenseScreen(
                     description = it
                     val predicted = CategoryEngine.predictCategory(it)
                     if (predicted != ExpenseCategory.OTHER) {
-                        selectedCategory = predicted.label
+                        selectedCategoryName = predicted.label
                     }
                 },
                 label = { Text("Description") },
@@ -185,7 +193,6 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // DATE SELECTOR
             OutlinedTextField(
                 value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedTimestamp)),
                 onValueChange = {},
@@ -195,7 +202,7 @@ fun AddExpenseScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { showDatePicker = true },
-                enabled = false, // Use clickable on modifier instead
+                enabled = false,
                 colors = OutlinedTextFieldDefaults.colors(
                     disabledTextColor = MaterialTheme.colorScheme.onSurface,
                     disabledBorderColor = MaterialTheme.colorScheme.outline,
@@ -207,19 +214,24 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // CATEGORY SELECTOR
             ExposedDropdownMenuBox(
                 expanded = isCategoryDropdownExpanded,
                 onExpandedChange = { isCategoryDropdownExpanded = it }
             ) {
+                val currentCategoryObj = categories.find { it.name == selectedCategoryName }
+                val style = CategoryStyling.getStyle(
+                    categoryName = selectedCategoryName,
+                    customColorHex = currentCategoryObj?.colorHex,
+                    customIconName = currentCategoryObj?.iconName
+                )
+                
                 OutlinedTextField(
-                    value = selectedCategory,
+                    value = selectedCategoryName,
                     onValueChange = {},
                     label = { Text("Category") },
                     readOnly = true,
                     leadingIcon = {
-                        val style = CategoryStyling.getStyle(selectedCategory)
-                        Icon(style.icon, contentDescription = null, tint = style.color)
+                        Icon(style.icon, contentDescription = null, tint = style.boldColor)
                     },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isCategoryDropdownExpanded) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
@@ -229,12 +241,16 @@ fun AddExpenseScreen(
                     onDismissRequest = { isCategoryDropdownExpanded = false }
                 ) {
                     categories.forEach { category ->
-                        val style = CategoryStyling.getStyle(category)
+                        val itemStyle = CategoryStyling.getStyle(
+                            categoryName = category.name,
+                            customColorHex = category.colorHex,
+                            customIconName = category.iconName
+                        )
                         DropdownMenuItem(
-                            text = { Text(category) },
-                            leadingIcon = { Icon(style.icon, contentDescription = null, tint = style.color) },
+                            text = { Text(category.name) },
+                            leadingIcon = { Icon(itemStyle.icon, contentDescription = null, tint = itemStyle.boldColor) },
                             onClick = { 
-                                selectedCategory = category 
+                                selectedCategoryName = category.name 
                                 isCategoryDropdownExpanded = false
                             }
                         )
@@ -244,7 +260,6 @@ fun AddExpenseScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
 
-            // GROUP SELECTOR
             ExposedDropdownMenuBox(
                 expanded = isGroupDropdownExpandedForGroups,
                 onExpandedChange = { isGroupDropdownExpandedForGroups = it }
@@ -275,7 +290,6 @@ fun AddExpenseScreen(
                 }
             }
 
-            // PAID BY SELECTOR
             if (selectedGroup != null) {
                 Spacer(modifier = Modifier.height(16.dp))
                 ExposedDropdownMenuBox(
@@ -295,8 +309,7 @@ fun AddExpenseScreen(
                         expanded = isPaidByDropdownExpanded,
                         onDismissRequest = { isPaidByDropdownExpanded = false }
                     ) {
-                        val members = selectedGroup?.getMemberList() ?: listOf("You")
-                        members.forEach { member ->
+                        activeMembers.forEach { member ->
                             DropdownMenuItem(
                                 text = { Text(member) },
                                 onClick = {
@@ -309,7 +322,6 @@ fun AddExpenseScreen(
                 }
             }
 
-            // DYNAMIC SPLIT PREVIEW
             AnimatedVisibility(
                 visible = selectedGroup != null && amountDouble > 0,
                 enter = expandVertically(),
@@ -318,7 +330,7 @@ fun AddExpenseScreen(
                 Column {
                     Spacer(modifier = Modifier.height(24.dp))
                     SplitPreviewCard(
-                        members = selectedGroup?.getMemberList() ?: emptyList(),
+                        members = activeMembers,
                         totalAmount = amountDouble,
                         payer = paidBy
                     )
@@ -327,35 +339,27 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // SAVE BUTTON
             Button(
                 onClick = {
                     val amountVal = amount.toDoubleOrNull()
                     if (amountVal != null && amountVal > 0) {
                         scope.launch {
                             val newExpense = Expense(
-                                merchant = description.ifBlank { selectedCategory },
+                                merchant = description.ifBlank { selectedCategoryName },
                                 amount = amountVal,
-                                timestamp = selectedTimestamp, // Use selected date
-                                category = selectedCategory,
+                                timestamp = selectedTimestamp,
+                                category = selectedCategoryName,
                                 groupId = selectedGroup?.groupId,
                                 paidBy = if (selectedGroup == null) "You" else paidBy,
-                                isAuto = false
+                                isAuto = false,
+                                remoteId = UUID.randomUUID().toString(),
+                                isSynced = false
                             )
 
-                            db.expenseDao().insert(newExpense)
-
-                            selectedGroup?.groupId?.let {
-                                db.expenseDao().recalculateGroupTotal(it)
-                            }
-
-                            // Haptic feedback for manual save
+                            viewModel.saveExpense(newExpense)
                             HapticUtils.playDoubleTick(context)
-                            
-                            // Check budget thresholds
                             BudgetUtils.checkAndNotifyBudget(context)
-
-                            toaster.show("Saved!")
+                            toaster.show("Saved")
                             onExpenseAdded()
                         }
                     } else {

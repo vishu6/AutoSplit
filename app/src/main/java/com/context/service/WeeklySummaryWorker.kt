@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.ListenableWorker.Result
 import com.context.data.ExpenseDatabase
+import com.context.utils.PermissionUtils
 import java.util.Calendar
 import java.util.Locale
 
@@ -18,6 +19,11 @@ class WeeklySummaryWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
+        // Check if user has enabled weekly summaries
+        if (!PermissionUtils.isWeeklySummaryEnabled(applicationContext)) {
+            return Result.success()
+        }
+
         val db = ExpenseDatabase.getDatabase(applicationContext)
         val dao = db.expenseDao()
 

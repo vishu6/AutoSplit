@@ -1,19 +1,7 @@
 package com.context.utils
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.Dining
-import androidx.compose.material.icons.filled.DirectionsBus
-import androidx.compose.material.icons.filled.Flight
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.LocalGroceryStore
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.ShoppingBag
-import androidx.compose.material.icons.filled.Spa
-import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class ExpenseCategory(val label: String, val icon: ImageVector) {
@@ -32,6 +20,7 @@ enum class ExpenseCategory(val label: String, val icon: ImageVector) {
     WORK("Work", Icons.Default.Work),
     GIFTS("Gifts & Donations", Icons.Default.CardGiftcard),
     FAMILY("Family & Personal", Icons.Default.Groups),
+    INVESTMENT("Investment", Icons.Default.AccountBalanceWallet),
     OTHER("Other", Icons.Default.Lightbulb) // General fallback
 }
 
@@ -188,7 +177,6 @@ object CategoryEngine {
         "steam" to ExpenseCategory.ENTERTAINMENT,
         "playstation" to ExpenseCategory.ENTERTAINMENT,
         "xbox" to ExpenseCategory.ENTERTAINMENT,
-        "netflix" to ExpenseCategory.ENTERTAINMENT, // Overlap with bills, usually entertainment
 
         // Health & Wellness
         "health" to ExpenseCategory.HEALTH,
@@ -251,6 +239,25 @@ object CategoryEngine {
         "home" to ExpenseCategory.FAMILY,
         "child" to ExpenseCategory.FAMILY,
         "parent" to ExpenseCategory.FAMILY,
+
+        // Investment
+        "zerodha" to ExpenseCategory.INVESTMENT,
+        "groww" to ExpenseCategory.INVESTMENT,
+        "upstox" to ExpenseCategory.INVESTMENT,
+        "indmoney" to ExpenseCategory.INVESTMENT,
+        "stocks" to ExpenseCategory.INVESTMENT,
+        "mutual fund" to ExpenseCategory.INVESTMENT,
+        "sip" to ExpenseCategory.INVESTMENT,
+        "etf" to ExpenseCategory.INVESTMENT,
+        "crypto" to ExpenseCategory.INVESTMENT,
+        "bitcoin" to ExpenseCategory.INVESTMENT,
+        "coinbase" to ExpenseCategory.INVESTMENT,
+        "wazirx" to ExpenseCategory.INVESTMENT,
+        "gold" to ExpenseCategory.INVESTMENT,
+        "silver" to ExpenseCategory.INVESTMENT,
+        "investment" to ExpenseCategory.INVESTMENT,
+        "equity" to ExpenseCategory.INVESTMENT,
+        "dividend" to ExpenseCategory.INVESTMENT,
     )
 
     fun predictCategory(merchantName: String): ExpenseCategory {

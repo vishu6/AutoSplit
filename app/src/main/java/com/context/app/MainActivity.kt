@@ -1,8 +1,9 @@
 package com.context.app
 
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -10,31 +11,29 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
+import com.context.app.widget.BudgetWidget
+import com.context.service.DailySummaryWorker
+import com.context.sync.GroupSyncManager
 import com.context.ui.theme.ContextTheme
 import com.context.utils.ThemeUtils
 import com.context.utils.UpdateUtils
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.InstallStateUpdatedListener
-import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.InstallStatus
-import com.google.android.play.core.install.model.UpdateAvailability
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
 
+    @Inject 
+    lateinit var groupSyncManager: GroupSyncManager
+    
     private lateinit var appUpdateManager: AppUpdateManager
-    private val UPDATE_REQUEST_CODE = 123
 
     private val installStateUpdatedListener = InstallStateUpdatedListener { state ->
         if (state.installStatus() == InstallStatus.DOWNLOADED) {
-            // After the update is downloaded, show a toast or a snackbar to restart the app
-            Toast.makeText(
-                applicationContext,
-                "Update downloaded. Restarting to apply...",
-                Toast.LENGTH_LONG
-            ).show()
             appUpdateManager.completeUpdate()
         }
     }
@@ -45,9 +44,10 @@ class MainActivity : FragmentActivity() {
         
         appUpdateManager = AppUpdateManagerFactory.create(this)
         appUpdateManager.registerListener(installStateUpdatedListener)
-        
-        // Check for updates
         UpdateUtils.checkForUpdateSilently(appUpdateManager)
+
+        // Handle Deep Link or Widget Action
+        handleIntent(intent)
 
         setContent {
             val context = LocalContext.current
@@ -65,6 +65,37 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        // 1. Handle Widget Actions
+        val widgetAction = intent?.getStringExtra(BudgetWidget.KEY_WIDGET_ACTION.name)
+        if (widgetAction == BudgetWidget.ACTION_ADD_EXPENSE) {
+            val addIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("cleave://add"))
+            intent.data = addIntent.data
+        }
+
+        // 2. Handle Group Joining (Web Links and Custom Schemes)
+        intent?.data?.let { uri ->
+            val isJoinLink = uri.host == "join" || 
+                            uri.path?.contains("join") == true || 
+                            uri.host == "cleaveapp.in" || 
+                            uri.host?.contains("autosplit") == true
+
+            if (isJoinLink) {
+                groupSyncManager.joinByUrl(
+                    url = uri.toString(),
+                    onComplete = { /* AppNavigation handles navigation */ },
+                    onError = { /* Log or ignore */ }
+                )
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
@@ -72,6 +103,9 @@ class MainActivity : FragmentActivity() {
                 appUpdateManager.completeUpdate()
             }
         }
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(DailySummaryWorker.NOTIFICATION_ID)
     }
 
     override fun onDestroy() {

@@ -1,29 +1,56 @@
 package com.context.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.context.data.Category
 import com.context.data.Expense
 import com.context.data.ExpenseDao
+import com.context.data.GroupMember
+import com.context.sync.GroupSyncManager
+import com.context.utils.WidgetUpdateHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class AddExpenseViewModel @Inject constructor(
-    private val expenseDao: ExpenseDao
+    private val expenseDao: ExpenseDao,
+    private val groupSyncManager: GroupSyncManager,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val allGroups = expenseDao.getAllGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allCategories: StateFlow<List<Category>> = expenseDao.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun getActiveMembers(groupId: Int): Flow<List<String>> {
+        return expenseDao.getMembersForGroup(groupId).map { members ->
+            members.filter { it.isActive }.map { it.name }
+        }
+    }
+
     fun saveExpense(expense: Expense) {
         viewModelScope.launch {
-            expenseDao.insert(expense)
-            // After inserting, if it's a group expense, we must recalculate the total
-            expense.groupId?.let {
-                expenseDao.recalculateGroupTotal(it)
+            val id = expenseDao.insert(expense).toInt()
+            val savedExpense = expense.copy(id = id)
+            
+            // Trigger instant widget update
+            WidgetUpdateHelper.updateWidget(context)
+            
+            // After inserting, if it's a group expense, we must recalculate and sync
+            savedExpense.groupId?.let { groupId ->
+                expenseDao.recalculateGroupTotal(groupId)
+                // Auto-push to cloud if sync is enabled
+                groupSyncManager.pushExpense(savedExpense)
             }
         }
     }

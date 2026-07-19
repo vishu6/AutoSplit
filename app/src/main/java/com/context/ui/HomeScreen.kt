@@ -1,23 +1,24 @@
 package com.context.ui
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,43 +26,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.context.components.DonutChart
-import com.context.components.UpdateAvailableBanner
+import com.context.components.*
 import com.context.data.Expense
 import com.context.data.Group
+import com.context.ui.theme.CategoryStyle
 import com.context.ui.theme.CategoryStyling
-import com.context.ui.theme.ContextTheme
 import com.context.ui.theme.ElectricBlue
 import com.context.ui.theme.LightBlue
-import com.context.ui.theme.FintechRed
-import com.context.utils.DateUtils
-import com.context.utils.OnboardingUtils
-import com.context.utils.PermissionUtils
-import com.context.utils.TimeRange
-import com.context.utils.UpdateUtils
-import com.context.utils.HapticUtils
-import com.context.utils.BudgetUtils
-import java.text.SimpleDateFormat
-import java.util.Calendar
+import com.context.utils.*
 import java.util.Locale
-import kotlin.math.abs
+import java.util.concurrent.TimeUnit
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     homeViewModel: HomeViewModel,
@@ -78,28 +70,50 @@ fun HomeScreen(
     val transactions by homeViewModel.allExpenses.collectAsState(initial = emptyList())
     val groups by homeViewModel.groups.collectAsState(initial = emptyList())
     val filteredTotalSpent by homeViewModel.filteredTotalSpent.collectAsState()
-    val previousPeriodTotalSpent by homeViewModel.previousPeriodTotalSpent.collectAsState()
+    val monthlyTotalSpent by homeViewModel.currentMonthTotalSpent.collectAsState()
     val filteredExpenses by homeViewModel.filteredExpenses.collectAsState()
     val selectedRange by homeViewModel.selectedTimeRange.collectAsState()
     val currentCalendar by homeViewModel.currentCalendar.collectAsState()
     val searchQuery by homeViewModel.searchQuery.collectAsState()
     val isSearchActive by homeViewModel.isSearchActive.collectAsState()
 
+    val selectedCategory by homeViewModel.selectedCategory.collectAsState()
+    val trendData by homeViewModel.categoryTrendData.collectAsState()
+    val categoryLimits by homeViewModel.categoryLimits.collectAsState()
+    val categorySpentMap by homeViewModel.currentMonthCategorySpent.collectAsState()
+    
+    val categoryMap by homeViewModel.categoryMap.collectAsState()
+
+    val context = LocalContext.current
+    val privacyMode by remember { SecurityUtils.getPrivacyModeFlow(context) }.collectAsState(initial = SecurityUtils.isPrivacyModeEnabled(context))
+
     val spendingExpenses = remember(filteredExpenses) {
         filteredExpenses.filter { it.category != "Settlement" }
     }
 
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var showPermissionDialog by remember { mutableStateOf(false) }
-    var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
+    val toaster = LocalToaster.current
     
-    // Budget State
-    var isBudgetSet by remember { mutableStateOf(BudgetUtils.isBudgetSet(context)) }
-    var monthlyBudgetValue by remember { mutableStateOf(BudgetUtils.getMonthlyBudget(context)) }
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var showBatteryExplanationDialog by remember { mutableStateOf(false) }
+    var showPermissionBanner by remember { mutableStateOf(false) }
+    var showBatteryBanner by remember { mutableStateOf(false) }
+    var showJoinDialog by remember { mutableStateOf(false) }
 
-    // FAB State
+    var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
+    var currentGreeting by remember { mutableStateOf(DateUtils.getGreeting()) }
+    var isBudgetSet by remember { mutableStateOf(BudgetUtils.isBudgetSet(context)) }
+    var monthlyBudgetValue by remember { mutableDoubleStateOf(BudgetUtils.getMonthlyBudget(context)) }
+
     var fabExpanded by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showCategoryDetail by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedCategory) {
+        if (selectedCategory != null) {
+            showCategoryDetail = true
+        }
+    }
 
     BackHandler(enabled = isSearchActive) {
         homeViewModel.setSearchActive(false)
@@ -109,46 +123,35 @@ fun HomeScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 savedName = OnboardingUtils.getUserName(context)
+                currentGreeting = DateUtils.getGreeting()
                 isBudgetSet = BudgetUtils.isBudgetSet(context)
                 monthlyBudgetValue = BudgetUtils.getMonthlyBudget(context)
+                homeViewModel.refreshBudgetLimits()
+                
+                val notificationEnabled = PermissionUtils.isNotificationServiceEnabled(context)
+                if (!notificationEnabled && !PermissionUtils.isPermanentDismissed(context)) {
+                    val count = PermissionUtils.getNudgeCount(context)
+                    val lastNudge = PermissionUtils.getLastNudgeTimestamp(context)
+                    val diff = System.currentTimeMillis() - lastNudge
+                    val days = TimeUnit.MILLISECONDS.toDays(diff)
+
+                    when {
+                        count == 0 -> showPermissionDialog = true
+                        count < 3 && days >= 7L -> showPermissionDialog = true
+                        count < 3 -> showPermissionBanner = !PermissionUtils.isBannerDismissedForCurrentCount(context)
+                        else -> { showPermissionDialog = false; showPermissionBanner = false }
+                    }
+                } else {
+                    showPermissionDialog = false; showPermissionBanner = false
+                    if (notificationEnabled) {
+                        showBatteryBanner = !PermissionUtils.isBatteryOptimizationIgnored(context) && 
+                                           !PermissionUtils.isBatteryBannerDismissed(context)
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(Unit) {
-        if (!PermissionUtils.isNotificationServiceEnabled(context)) {
-            showPermissionDialog = true
-        }
-    }
-
-    // Haptic for search results
-    LaunchedEffect(filteredExpenses.size) {
-        if (isSearchActive && filteredExpenses.isNotEmpty()) {
-            HapticUtils.playTick(context)
-        }
-    }
-
-    if (showPermissionDialog) {
-        AlertDialog(
-            onDismissRequest = { /* Do nothing */ },
-            title = { Text("Enable Auto-Tracking") },
-            text = { Text("To automatically track expenses from SMS, Cleave needs 'Notification Access'.") },
-            confirmButton = {
-                Button(onClick = {
-                    showPermissionDialog = false
-                    PermissionUtils.openNotificationSettings(context)
-                }) {
-                    Text("Go to Settings")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPermissionDialog = false }) {
-                    Text("Later")
-                }
-            }
-        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -157,45 +160,62 @@ fun HomeScreen(
             contentWindowInsets = WindowInsets.systemBars 
         ) { padding ->
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                if (UpdateUtils.showUpdateBanner && !isSearchActive) {
-                    item {
-                        UpdateAvailableBanner(onUpdateClick = onUpdateClick)
-                    }
-                }
+                if (UpdateUtils.showUpdateBanner && !isSearchActive) item { UpdateAvailableBanner(onUpdateClick = onUpdateClick) }
+                
+                if (showPermissionBanner && !isSearchActive) item { PermissionNudgeBanner(onEnable = { showPermissionDialog = true }, onDismiss = { PermissionUtils.setBannerDismissed(context); showPermissionBanner = false }) }
+                if (showBatteryBanner && !isSearchActive) item { BatteryOptimizationNudgeBanner(onFix = { showBatteryExplanationDialog = true }, onDismiss = { PermissionUtils.setBatteryBannerDismissed(context, true); showBatteryBanner = false }) }
 
                 item {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         HomeTopBar(
                             name = savedName,
+                            greeting = currentGreeting,
                             onProfileClick = onProfileClick,
                             isSearchActive = isSearchActive,
-                            onSearchClick = { 
-                                HapticUtils.playTick(context)
-                                homeViewModel.setSearchActive(true) 
-                            },
+                            onSearchClick = { HapticUtils.playTick(context); homeViewModel.setSearchActive(true) },
                             searchQuery = searchQuery,
                             onSearchQueryChange = { homeViewModel.onSearchQueryChanged(it) },
-                            onClearSearch = { homeViewModel.setSearchActive(false) }
+                            onClearSearch = { homeViewModel.setSearchActive(false) },
+                            isPrivacyMode = privacyMode,
+                            onPrivacyToggle = {
+                                HapticUtils.playTick(context)
+                                SecurityUtils.setPrivacyModeEnabled(context, !privacyMode)
+                                WidgetUpdateHelper.updateWidget(context, wait = false)
+                            }
                         )
 
-                        AnimatedVisibility(
-                            visible = !isSearchActive,
-                            enter = fadeIn(animationSpec = tween(500)),
-                            exit = fadeOut(animationSpec = tween(300))
-                        ) {
+                        AnimatedVisibility(visible = !isSearchActive, enter = fadeIn(), exit = fadeOut()) {
                             Column {
                                 Spacer(modifier = Modifier.height(24.dp))
                                 BalanceSummaryCard(
                                     currentAmount = filteredTotalSpent,
-                                    previousAmount = previousPeriodTotalSpent,
+                                    monthlyTotalSpent = monthlyTotalSpent,
                                     selectedRange = selectedRange,
                                     calendar = currentCalendar,
-                                    monthlyBudget = if (isBudgetSet) monthlyBudgetValue else null
+                                    monthlyBudget = if (isBudgetSet) monthlyBudgetValue else null,
+                                    isPrivacyMode = privacyMode
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ModernTimeRangeFilter(
+                                    selectedRange = selectedRange,
+                                    onRangeSelected = { HapticUtils.playTick(context); homeViewModel.onTimeRangeSelected(it) },
+                                    calendar = currentCalendar,
+                                    onNext = { HapticUtils.playTick(context); homeViewModel.onNextPeriod() },
+                                    onPrevious = { HapticUtils.playTick(context); homeViewModel.onPreviousPeriod() }
+                                )
+                                
+                                BudgetPulseSection(
+                                    categoryLimits = categoryLimits,
+                                    categorySpentMap = categorySpentMap,
+                                    onCategoryClick = { 
+                                        HapticUtils.playTick(context)
+                                        homeViewModel.selectCategory(it) 
+                                    },
+                                    isPrivacyMode = privacyMode
                                 )
                                 
                                 if (!isBudgetSet && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(currentCalendar)) {
@@ -208,43 +228,35 @@ fun HomeScreen(
                 }
 
                 if (!isSearchActive) {
-                    item {
-                        TimeRangeFilter(
-                            selectedRange = selectedRange,
-                            onRangeSelected = { 
-                                HapticUtils.playTick(context)
-                                homeViewModel.onTimeRangeSelected(it) 
-                            },
-                            calendar = currentCalendar,
-                            onNext = { 
-                                HapticUtils.playTick(context)
-                                homeViewModel.onNextPeriod() 
-                            },
-                            onPrevious = { 
-                                HapticUtils.playTick(context)
-                                homeViewModel.onPreviousPeriod() 
-                            }
-                        )
-                    }
-
                     if (spendingExpenses.isNotEmpty()) {
                         item {
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(32.dp))
                             Text(
                                 "Spend Analysis",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                DonutChart(expenses = spendingExpenses, modifier = Modifier.weight(1f))
-                                Spacer(modifier = Modifier.width(24.dp))
-                                ChartLegend(expenses = spendingExpenses, modifier = Modifier.weight(1f))
+
+                            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    DonutChart(
+                                        expenses = spendingExpenses, 
+                                        modifier = Modifier.weight(1.2f),
+                                        selectedCategory = selectedCategory,
+                                        onCategoryClick = { homeViewModel.selectCategory(it) },
+                                        categoryMap = categoryMap
+                                    )
+                                    Spacer(modifier = Modifier.width(24.dp))
+                                    ChartLegend(
+                                        expenses = spendingExpenses, 
+                                        modifier = Modifier.weight(1f),
+                                        selectedCategory = selectedCategory,
+                                        onCategoryClick = { homeViewModel.selectCategory(it) },
+                                        categoryMap = categoryMap
+                                    )
+                                }
                             }
                         }
                     }
@@ -252,28 +264,19 @@ fun HomeScreen(
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                             Spacer(modifier = Modifier.height(32.dp))
-                            Text(
-                                text = "My Groups",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
+                            Text("My Groups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                             Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
 
                     item {
                         GroupsList(
-                            groups = groups,
+                            groups = groups, 
                             expenses = transactions, 
-                            onGroupClick = { groupId ->
-                                HapticUtils.playTick(context)
-                                onNavigateToGroup(groupId)
-                            },
-                            onNewGroupClick = {
-                                HapticUtils.playTick(context)
-                                onCreateGroupClick()
-                            }
+                            onGroupClick = { HapticUtils.playTick(context); onNavigateToGroup(it) }, 
+                            onNewGroupClick = { HapticUtils.playTick(context); onCreateGroupClick() },
+                            onJoinGroupClick = { HapticUtils.playTick(context); showJoinDialog = true },
+                            isPrivacyMode = privacyMode
                         )
                         Spacer(modifier = Modifier.height(32.dp))
                     }
@@ -284,79 +287,31 @@ fun HomeScreen(
                         if (searchQuery.isEmpty()) "Recent Transactions" else "Search Results"
                     } else {
                         when (selectedRange) {
-                            TimeRange.TODAY -> {
-                                when {
-                                    DateUtils.isToday(currentCalendar) -> "Today's Transactions"
-                                    DateUtils.isYesterday(currentCalendar) -> "Yesterday's Transactions"
-                                    else -> {
-                                        val day = currentCalendar.get(Calendar.DAY_OF_MONTH)
-                                        val suffix = DateUtils.getDayOfMonthSuffix(day)
-                                        val month = SimpleDateFormat("MMM", Locale.getDefault()).format(currentCalendar.time)
-                                        "$month $day$suffix Transactions"
-                                    }
-                                }
-                            }
-                            TimeRange.WEEK -> if (DateUtils.isThisWeek(currentCalendar)) "This Week's Transactions" else "Week's Transactions"
-                            TimeRange.MONTH -> {
-                                if (DateUtils.isThisMonth(currentCalendar)) {
-                                    "This Month's Transactions"
-                                } else {
-                                    val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
-                                    "${monthFormat.format(currentCalendar.time)}'s Transactions"
-                                }
-                            }
-                            TimeRange.YEAR -> {
-                                if (DateUtils.isThisYear(currentCalendar)) {
-                                    "This Year's Transactions"
-                                } else {
-                                    val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-                                    "${yearFormat.format(currentCalendar.time)}'s Transactions"
-                                }
-                            }
+                            TimeRange.TODAY -> if (DateUtils.isToday(currentCalendar)) "Today's Transactions" else "Day's Transactions"
+                            TimeRange.WEEK -> "Week's Transactions"
+                            TimeRange.MONTH -> if (DateUtils.isThisMonth(currentCalendar)) "This Month's Transactions" else "Month's Transactions"
+                            TimeRange.YEAR -> "Year's Transactions"
                             TimeRange.ALL -> "Recent Transactions"
                         }
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        if (!isSearchActive) {
-                            TextButton(onClick = onViewAllClick) {
-                                Text("View All")
-                            }
-                        }
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                        if (!isSearchActive) TextButton(onClick = onViewAllClick) { Text("View All", color = ElectricBlue, fontWeight = FontWeight.Bold) }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
                 if (filteredExpenses.isEmpty()) {
-                    item {
-                        EmptyState(isSearching = isSearchActive)
-                    }
+                    item { EmptyState(isSearching = isSearchActive) }
                 } else {
-                    items(if (isSearchActive) filteredExpenses else filteredExpenses.take(10)) { expense ->
+                    items(if (isSearchActive) filteredExpenses else filteredExpenses.take(10), key = { expense: Expense -> expense.id }) { expense ->
                         val details = expense.toTransactionDetails()
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp)
-                                .combinedClickable(
-                                    onClick = { onExpenseClick(expense.id) },
-                                    onLongClick = {
-                                        HapticUtils.playHeavyClick(context)
-                                        onExpenseClick(expense.id)
-                                    }
-                                )
-                        ) {
-                            TransactionItemCard(transaction = details)
+                        Box(modifier = Modifier.padding(horizontal = 16.dp).combinedClickable(onClick = { onExpenseClick(expense.id) }, onLongClick = { HapticUtils.playHeavyClick(context); onExpenseClick(expense.id) })) { 
+                            TransactionItemCard(
+                                transaction = details, 
+                                isPrivacyMode = privacyMode,
+                                categoryMap = categoryMap
+                            ) 
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -364,44 +319,677 @@ fun HomeScreen(
             }
         }
 
-        // SCRIM
-        if (fabExpanded) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { fabExpanded = false }
+        if (showCategoryDetail) {
+            ModalBottomSheet(
+                onDismissRequest = { showCategoryDetail = false; homeViewModel.selectCategory(null) },
+                sheetState = sheetState,
+                containerColor = MaterialTheme.colorScheme.surface,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
+            ) {
+                selectedCategory?.let { category ->
+                    val currentCatObj = categoryMap[category]
+                    val style = CategoryStyling.getStyle(category, customCategories = categoryMap, customColorHex = currentCatObj?.colorHex, customIconName = currentCatObj?.iconName)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 48.dp)) {
+                        CategoryBudgetProgressHero(
+                            category = category,
+                            spent = categorySpentMap[category] ?: 0.0,
+                            limit = categoryLimits[category] ?: 0.0,
+                            style = style,
+                            isPrivacyMode = privacyMode
+                        )
+
+                        if (trendData.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(32.dp))
+                            Text(text = "$category — Last 6 Months", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            CategoryTrendBarChart(
+                                trendData = trendData,
+                                categoryColor = style.boldColor,
+                                modifier = Modifier.fillMaxWidth().height(220.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showJoinDialog) {
+            JoinGroupDialog(
+                onJoin = { url ->
+                    homeViewModel.joinGroupManual(url, 
+                        onComplete = { groupName ->
+                            showJoinDialog = false
+                            toaster.show("Joined group: $groupName")
+                        },
+                        onError = { error ->
+                            toaster.show(error)
+                        }
+                    )
+                },
+                onDismiss = { showJoinDialog = false }
             )
         }
 
-        // FAB
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-                .padding(16.dp),
-            contentAlignment = Alignment.BottomEnd
-        ) {
-            ExpandableFab(
-                isExpanded = fabExpanded,
-                onMainFabClick = { 
-                    HapticUtils.playTick(context)
-                    fabExpanded = !fabExpanded 
+        if (showPermissionDialog) {
+            PermissionExplanationDialog(
+                onConfirm = {
+                    showPermissionDialog = false
+                    PermissionUtils.openNotificationSettings(context)
                 },
-                onManualEntryClick = {
-                    HapticUtils.playTick(context)
-                    fabExpanded = false
-                    onAddExpenseClick()
-                },
-                onScanReceiptClick = {
-                    HapticUtils.playTick(context)
-                    fabExpanded = false
-                    onScanReceiptClick()
+                onDismiss = {
+                    showPermissionDialog = false
+                    PermissionUtils.recordNudgeDismissed(context)
                 }
             )
+        }
+
+        if (showBatteryExplanationDialog) {
+            BatteryOptimizationExplanationDialog(
+                onConfirm = {
+                    showBatteryExplanationDialog = false
+                    PermissionUtils.requestIgnoreBatteryOptimization(context)
+                },
+                onDismiss = { showBatteryExplanationDialog = false }
+            )
+        }
+
+        if (fabExpanded) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { fabExpanded = false })
+        Box(modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(16.dp), contentAlignment = Alignment.BottomEnd) { RefinedFab(isExpanded = fabExpanded, onMainFabClick = { HapticUtils.playTick(context); fabExpanded = !fabExpanded }, onManualEntryClick = { HapticUtils.playTick(context); fabExpanded = false; onAddExpenseClick() }, onScanReceiptClick = { HapticUtils.playTick(context); fabExpanded = false; onScanReceiptClick() }) }
+    }
+}
+
+// --- REFINED HOME COMPONENTS ---
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeTopBar(
+    name: String,
+    greeting: String,
+    onProfileClick: () -> Unit,
+    isSearchActive: Boolean,
+    onSearchClick: () -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    isPrivacyMode: Boolean,
+    onPrivacyToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        if (!isSearchActive) {
+            Column {
+                Text(text = "$greeting,", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
+                Text(text = name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPrivacyToggle) {
+                    Icon(
+                        imageVector = if (isPrivacyMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = "Toggle Privacy Mode",
+                        tint = if (isPrivacyMode) ElectricBlue else Color.Gray,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                IconButton(onClick = onSearchClick) {
+                    Icon(Icons.Default.Search, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).clickable { onProfileClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Settings, null, tint = ElectricBlue, modifier = Modifier.size(26.dp))
+                }
+            }
+        } else {
+            TextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(28.dp)),
+                placeholder = { Text("Search transactions...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = { IconButton(onClick = onClearSearch) { Icon(Icons.Default.Close, null) } },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                singleLine = true
+            )
+        }
+    }
+}
+
+@Composable
+fun BalanceSummaryCard(
+    currentAmount: Double,
+    monthlyTotalSpent: Double,
+    selectedRange: TimeRange,
+    calendar: java.util.Calendar,
+    monthlyBudget: Double?,
+    isPrivacyMode: Boolean
+) {
+    val isMainView = selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(calendar)
+    
+    // Rolling number animations
+    var triggerRoll by remember { mutableStateOf(false) }
+    LaunchedEffect(currentAmount) {
+        triggerRoll = true
+    }
+
+    val animatedAmount by animateFloatAsState(
+        targetValue = if (triggerRoll) currentAmount.toFloat() else 0f,
+        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+        label = "Main Balance Roll"
+    )
+
+    // Calculate Safe to Spend Today
+    val remainingBudget = if (monthlyBudget != null) monthlyBudget - monthlyTotalSpent else 0.0
+    val daysRemaining = DateUtils.getDaysRemainingInMonth()
+    val safeToday = (remainingBudget / daysRemaining).coerceAtLeast(0.0)
+
+    val animatedSafeToday by animateFloatAsState(
+        targetValue = if (triggerRoll) safeToday.toFloat() else 0f,
+        animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+        label = "Safe Today Roll"
+    )
+
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier.fillMaxWidth().shadow(12.dp, RoundedCornerShape(28.dp)),
+        colors = CardDefaults.cardColors(containerColor = ElectricBlue)
+    ) {
+        Box(
+            modifier = Modifier.background(Brush.verticalGradient(colors = listOf(ElectricBlue, LightBlue))).padding(28.dp)
+        ) {
+            Column {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                    Text(
+                        text = if (isMainView) "Total Spent This Month" else "Total for Period",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    if (monthlyBudget != null) {
+                        val safeText = CurrencyMasker.formatSmallAmount(animatedSafeToday.toDouble(), isPrivacyMode)
+                        Text(
+                            text = "$safeText safe today",
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(text = "₹", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+                    val amountText = if (isPrivacyMode) "••••" else String.format(Locale.getDefault(), "%,.0f", animatedAmount)
+                    Text(text = amountText, color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.ExtraBold)
+                }
+
+                if (monthlyBudget != null) {
+                    val actualProgress = (monthlyTotalSpent / monthlyBudget).toFloat().coerceIn(0f, 1.1f)
+                    val expectedProgress = DateUtils.getMonthElapsedProgress()
+                    val runOutDate = DateUtils.getExpectedRunOutDate(monthlyTotalSpent, monthlyBudget)
+                    
+                    val isOverspending = actualProgress > (expectedProgress + 0.15f)
+
+                    AnimatedVisibility(visible = isOverspending || actualProgress >= 1.0f, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        Column {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Surface(
+                                color = Color(0xFFFF5252).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f))
+                            ) {
+                                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val warningText = when {
+                                        actualProgress >= 1.0f -> "BUDGET EXCEEDED — stop spending"
+                                        actualProgress > 0.9f -> "OVERSPENDING — runs out soon"
+                                        runOutDate != null -> "OVERSPENDING — runs out on $runOutDate"
+                                        else -> "OVERSPENDING — pacing too fast"
+                                    }
+                                    Text(
+                                        text = warningText,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+                    LinearProgressIndicator(
+                        progress = { actualProgress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                        color = if (isOverspending || actualProgress >= 1.0f) Color(0xFFFF5252) else Color.White,
+                        trackColor = Color.White.copy(alpha = 0.3f)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        val usagePercent = (actualProgress * 100).toInt()
+                        val budgetText = if (isPrivacyMode) "••••" else monthlyBudget.toInt().toString()
+                        Text("$usagePercent% of ₹$budgetText budget used", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BudgetPulseSection(
+    categoryLimits: Map<String, Double>,
+    categorySpentMap: Map<String, Double>,
+    onCategoryClick: (String) -> Unit,
+    isPrivacyMode: Boolean
+) {
+    if (categoryLimits.isEmpty()) return
+    
+    val expectedProgress = DateUtils.getMonthElapsedProgress()
+    
+    // Filter for categories used > 80% OR those overspending relative to pacing
+    val atRiskCategories = categoryLimits.keys.filter { category ->
+        val spent = categorySpentMap[category] ?: 0.0
+        val limit = categoryLimits[category] ?: 0.0
+        if (limit <= 0) return@filter false
+        
+        val actualProgress = (spent / limit).toFloat()
+        actualProgress >= 0.8f || actualProgress > (expectedProgress + 0.15f)
+    }.sortedByDescending { category ->
+        val spent = categorySpentMap[category] ?: 0.0
+        val limit = categoryLimits[category] ?: 0.0
+        spent / limit
+    }
+
+    if (atRiskCategories.isEmpty()) return
+
+    Column {
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Budget Health", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+        Spacer(modifier = Modifier.height(16.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(end = 16.dp)) {
+            items(atRiskCategories) { category ->
+                val spent = categorySpentMap[category] ?: 0.0
+                val limit = categoryLimits[category] ?: 0.0
+                val style = CategoryStyling.getStyle(category)
+                val actualProgress = (spent / limit).toFloat().coerceIn(0f, 1f)
+                val usagePercent = (spent / limit * 100).toInt()
+                
+                // Smarter status color for health pulses
+                val isPacingBad = actualProgress > (expectedProgress + 0.15f)
+                val pulseColor = if (actualProgress >= 0.9f || isPacingBad) Color.Red else style.boldColor
+                val runOutDate = DateUtils.getExpectedRunOutDate(spent, limit)
+
+                Card(
+                    onClick = { onCategoryClick(category) },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = pulseColor.copy(alpha = 0.15f)),
+                    modifier = Modifier.width(150.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(style.icon, null, tint = pulseColor, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(category, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LinearProgressIndicator(
+                            progress = { actualProgress },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                            color = pulseColor,
+                            trackColor = pulseColor.copy(alpha = 0.2f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val statusText = when {
+                            usagePercent >= 100 -> "Limit Hit"
+                            usagePercent >= 80 -> "$usagePercent% used"
+                            runOutDate != null -> "Runs out $runOutDate"
+                            isPacingBad -> "Pacing Fast"
+                            else -> "$usagePercent% used"
+                        }
+                        Text(statusText, fontSize = 11.sp, color = pulseColor, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GroupsList(
+    groups: List<Group>,
+    expenses: List<Expense>,
+    onGroupClick: (Int) -> Unit,
+    onNewGroupClick: () -> Unit,
+    onJoinGroupClick: () -> Unit,
+    isPrivacyMode: Boolean
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(16.dp), 
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp)
+    ) {
+        item {
+            DashedAddCard(label = "New Group", icon = Icons.Default.Add, onClick = onNewGroupClick)
+        }
+        item {
+            DashedAddCard(label = "Join Group", icon = Icons.Default.Link, onClick = onJoinGroupClick)
+        }
+        items(groups, key = { it.groupId }) { group ->
+            val groupExpenses = expenses.filter { it.groupId == group.groupId }
+            val totalSpent = groupExpenses.sumOf { it.amount }
+            
+            Card(
+                onClick = { onGroupClick(group.groupId) },
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.width(150.dp).height(180.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text(text = group.name, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(text = "${group.getMemberList().size} members", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                    val amountText = CurrencyMasker.formatSmallAmount(totalSpent, isPrivacyMode)
+                    Text(text = amountText, fontWeight = FontWeight.Black, color = ElectricBlue, style = MaterialTheme.typography.headlineSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashedAddCard(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(140.dp)
+            .height(180.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val stroke = Stroke(
+                width = 2.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
+            )
+            drawRoundRect(
+                color = Color.LightGray.copy(alpha = 0.5f),
+                style = stroke,
+                cornerRadius = CornerRadius(24.dp.toPx(), 24.dp.toPx())
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = ElectricBlue, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(label, color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+fun RefinedFab(
+    isExpanded: Boolean,
+    onMainFabClick: () -> Unit,
+    onManualEntryClick: () -> Unit,
+    onScanReceiptClick: () -> Unit
+) {
+    val rotation by animateFloatAsState(if (isExpanded) 45f else 0f, label = "FAB Rotation")
+    
+    Column(horizontalAlignment = Alignment.End) {
+        AnimatedVisibility(
+            visible = isExpanded, 
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom), 
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End, 
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ActionFabItem(label = "Manual Entry", icon = Icons.Default.Edit, onClick = onManualEntryClick)
+                ActionFabItem(label = "Scan Receipt", icon = Icons.Default.QrCodeScanner, onClick = onScanReceiptClick)
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        FloatingActionButton(
+            onClick = onMainFabClick,
+            shape = CircleShape,
+            containerColor = ElectricBlue,
+            contentColor = Color.White,
+            modifier = Modifier.size(64.dp)
+        ) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(32.dp).rotate(rotation))
+        }
+    }
+}
+
+@Composable
+private fun ActionFabItem(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        modifier = Modifier
+            .width(200.dp)
+            .shadow(8.dp, RoundedCornerShape(20.dp)),
+        contentColor = ElectricBlue
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(icon, null, modifier = Modifier.size(24.dp))
+            Text(text = label, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
+@Composable
+fun ChartLegend(
+    expenses: List<Expense>,
+    modifier: Modifier = Modifier,
+    selectedCategory: String? = null,
+    onCategoryClick: (String) -> Unit,
+    categoryMap: Map<String, com.context.data.Category> = emptyMap()
+) {
+    val totalSpend = expenses.sumOf { it.amount }
+    val categoryTotals = expenses.groupBy { it.category }.mapValues { it.value.sumOf { e -> e.amount } }.toList().sortedByDescending { it.second }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        categoryTotals.take(6).forEach { (category, amount) ->
+            val catObj = categoryMap[category]
+            val style = CategoryStyling.getStyle(category, customCategories = categoryMap, customColorHex = catObj?.colorHex, customIconName = catObj?.iconName)
+            val isSelected = selectedCategory == category
+            val percentage = if (totalSpend > 0) (amount / totalSpend * 100) else 0.0
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onCategoryClick(category) }.padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(style.boldColor))
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(text = category, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                Text(text = String.format(Locale.getDefault(), "%.1f%%", percentage), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+fun CategoryBudgetProgressHero(
+    category: String,
+    spent: Double,
+    limit: Double,
+    style: CategoryStyle,
+    isPrivacyMode: Boolean
+) {
+    val actualProgress = if (limit > 0) (spent / limit).toFloat().coerceIn(0f, 1.1f) else 0f
+    val expectedProgress = DateUtils.getMonthElapsedProgress()
+    
+    // PACING LOGIC
+    val isOverspending = actualProgress > (expectedProgress + 0.15f)
+
+    val remaining = (limit - spent).coerceAtLeast(0.0)
+    val daysRemaining = DateUtils.getDaysRemainingInMonth()
+    val safeToday = if (daysRemaining > 0) remaining / daysRemaining else 0.0
+    val runOutDate = DateUtils.getExpectedRunOutDate(spent, limit)
+    
+    val statusColor = if (isOverspending || actualProgress >= 1.0f) Color.Red else style.boldColor
+    
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = style.color.copy(alpha = 0.15f),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(style.icon, null, tint = style.boldColor, modifier = Modifier.size(22.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(text = "$category Budget", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+        }
+        
+        Spacer(modifier = Modifier.height(28.dp))
+        
+        if (limit > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column {
+                    val safeText = CurrencyMasker.formatSmallAmount(safeToday, isPrivacyMode)
+                    Text(
+                        text = "$safeText/day",
+                        style = MaterialTheme.typography.displayMedium.copy(fontSize = 44.sp),
+                        fontWeight = FontWeight.Black,
+                        color = if (safeToday <= 0 || isOverspending) Color.Red else Color.Black
+                    )
+                    Text(
+                        text = "Safe to spend",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    val remainingText = if (isPrivacyMode) "••••" else remaining.toInt().toString()
+                    Text(
+                        text = when {
+                            actualProgress >= 1.0f -> "₹0"
+                            runOutDate != null -> runOutDate
+                            else -> "₹$remainingText"
+                        }, 
+                        style = MaterialTheme.typography.titleLarge, 
+                        fontWeight = FontWeight.Black,
+                        color = if (remaining <= 0 || isOverspending) Color.Red else Color.Black
+                    )
+                    Text(
+                        text = if (runOutDate != null && actualProgress < 1.0f) "runs out on" else "remaining",
+                        style = MaterialTheme.typography.labelMedium, 
+                        color = Color.Gray
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            LinearProgressIndicator(
+                progress = { actualProgress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                color = statusColor,
+                trackColor = style.color.copy(alpha = 0.1f)
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                val spentText = CurrencyMasker.formatSmallAmount(spent, isPrivacyMode)
+                val limitText = if (isPrivacyMode) "••••" else limit.toInt().toString()
+                Text(text = "$spentText spent", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = statusColor)
+                Text(text = "₹$limitText limit", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            }
+        } else {
+            val spentText = CurrencyMasker.formatSmallAmount(spent, isPrivacyMode)
+            Text(text = "$spentText spent this month", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(text = "No limit set for $category", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+        }
+    }
+}
+
+@Composable
+fun EmptyState(isSearching: Boolean) {
+    Column(modifier = Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(if (isSearching) Icons.Default.SearchOff else Icons.AutoMirrored.Filled.ReceiptLong, null, modifier = Modifier.size(72.dp), tint = Color.LightGray)
+        Spacer(Modifier.height(20.dp))
+        Text(text = if (isSearching) "No matches found" else "No transactions yet", style = MaterialTheme.typography.bodyLarge, color = Color.Gray, fontWeight = FontWeight.Bold)
+    }
+}
+
+// --- BANNER & DIALOG COMPONENTS ---
+
+@Composable
+fun PermissionNudgeBanner(onEnable: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.NotificationsActive, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Enable Auto-Tracking", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                Text("Automatically log expenses from alerts.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+            }
+            TextButton(onClick = onEnable) {
+                Text("Enable", fontWeight = FontWeight.Black, color = ElectricBlue)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp), tint = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun BatteryOptimizationNudgeBanner(onFix: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.BatteryAlert, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(26.dp))
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Tracking Accuracy", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                Text("Exempt Cleave from battery limits.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f))
+            }
+            TextButton(onClick = onFix) {
+                Text("Fix Now", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.error)
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp), tint = Color.Gray)
+            }
         }
     }
 }
@@ -409,570 +997,124 @@ fun HomeScreen(
 @Composable
 fun BudgetNudgeBanner(onSetBudgetClick: () -> Unit) {
     Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        colors = CardDefaults.cardColors(containerColor = ElectricBlue.copy(alpha = 0.08f)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth().clickable { onSetBudgetClick() }
+        border = BorderStroke(1.dp, ElectricBlue.copy(alpha = 0.2f))
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("💡", fontSize = 24.sp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    "No budget set yet",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Know when you're overspending before it's too late.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                "Set Monthly Budget →",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
-        }
-    }
-}
-
-@Composable
-fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClearSearch: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        placeholder = { 
-            Text(
-                text = "Search transactions...",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            ) 
-        },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = ElectricBlue) },
-        trailingIcon = {
-            IconButton(onClick = onClearSearch) {
-                Icon(Icons.Default.Close, contentDescription = "Close Search")
-            }
-        },
-        shape = RoundedCornerShape(16.dp),
-        singleLine = true,
-        maxLines = 1,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = ElectricBlue,
-            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f)
-        )
-    )
-}
-
-@Composable
-fun ExpandableFab(
-    isExpanded: Boolean,
-    onMainFabClick: () -> Unit,
-    onManualEntryClick: () -> Unit,
-    onScanReceiptClick: () -> Unit
-) {
-    val rotation by animateFloatAsState(if (isExpanded) 45f else 0f, label = "Rotate")
-
-    Column(horizontalAlignment = Alignment.End) {
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
-        ) {
-            Column(horizontalAlignment = Alignment.End) {
-                ExtendedFloatingActionButton(
-                    onClick = onManualEntryClick,
-                    containerColor = Color.White,
-                    contentColor = ElectricBlue,
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = FloatingActionButtonDefaults.elevation(8.dp),
-                    text = { Text("Manual Entry", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                    icon = { Icon(Icons.Default.Edit, contentDescription = null) }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                ExtendedFloatingActionButton(
-                    onClick = onScanReceiptClick,
-                    containerColor = Color.White,
-                    contentColor = ElectricBlue,
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = FloatingActionButtonDefaults.elevation(8.dp),
-                    text = { Text("Scan Receipt", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                    icon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-        
-        FloatingActionButton(
-            onClick = onMainFabClick,
-            containerColor = if (isExpanded) Color.White else MaterialTheme.colorScheme.primary,
-            contentColor = if (isExpanded) ElectricBlue else Color.White,
-            shape = CircleShape,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 12.dp)
-        ) {
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.Add,
-                contentDescription = "Menu",
-                modifier = Modifier.rotate(rotation)
-            )
-        }
-    }
-}
-
-@Composable
-fun TimeRangeFilter(
-    selectedRange: TimeRange,
-    onRangeSelected: (TimeRange) -> Unit,
-    calendar: Calendar,
-    onNext: () -> Unit,
-    onPrevious: () -> Unit
-) {
-    val dayFormat = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
-    val weekFormat = SimpleDateFormat("MMM d", Locale.getDefault())
-    val monthYearFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-    val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-
-    val navigatorLabel = when (selectedRange) {
-        TimeRange.TODAY -> dayFormat.format(calendar.time)
-        TimeRange.WEEK -> {
-            val weekStart = calendar.clone() as Calendar
-            weekStart.set(Calendar.DAY_OF_WEEK, weekStart.firstDayOfWeek)
-            val weekEnd = weekStart.clone() as Calendar
-            weekEnd.add(Calendar.DAY_OF_WEEK, 6)
-            "${weekFormat.format(weekStart.time)} - ${weekFormat.format(weekEnd.time)}"
-        }
-        TimeRange.MONTH -> monthYearFormat.format(calendar.time)
-        TimeRange.YEAR -> yearFormat.format(calendar.time)
-        TimeRange.ALL -> "All Time"
-    }
-
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            listOf(TimeRange.TODAY, TimeRange.WEEK, TimeRange.MONTH, TimeRange.YEAR, TimeRange.ALL).forEach { range ->
-                TextButton(onClick = { onRangeSelected(range) }) {
-                     Text(
-                         text = range.name.lowercase().replaceFirstChar { it.uppercase() },
-                         fontWeight = if (range == selectedRange) FontWeight.Bold else FontWeight.Normal,
-                         color = if (range == selectedRange) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                     )
-                }
-            }
-        }
-
-        if (selectedRange != TimeRange.ALL) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(44.dp).background(ElectricBlue.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                IconButton(onClick = onPrevious) {
-                    Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
-                }
-
-                Text(
-                    text = navigatorLabel,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                IconButton(onClick = onNext) {
-                    Icon(Icons.Default.ArrowForwardIos, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
-                }
+                Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = ElectricBlue, modifier = Modifier.size(22.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Set Monthly Budget", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                Text("Plan your spends and save more.", fontSize = 13.sp, color = Color.Gray)
+            }
+            Button(
+                onClick = onSetBudgetClick,
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text("Set Goal", fontSize = 13.sp, fontWeight = FontWeight.Black)
             }
         }
     }
 }
 
-fun Expense.toTransactionDetails(): TransactionDetails {
-    val sdf = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault())
-    return TransactionDetails(
-        merchant = this.merchant,
-        dateTime = sdf.format(this.timestamp),
-        amount = String.format("%.2f", this.amount),
-        type = TransactionType.EXPENSE,
-        category = this.category,
-        source = if (this.isAuto) TransactionSource.AUTO_DETECTED else TransactionSource.MANUAL,
-        isAuto = this.isAuto
-    )
-}
-
 @Composable
-private fun HomeTopBar(
-    name: String, 
-    onProfileClick: () -> Unit,
-    isSearchActive: Boolean,
-    onSearchClick: () -> Unit,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    onClearSearch: () -> Unit
-) {
-    val greetingTime = remember { DateUtils.getGreeting() }
+fun JoinGroupDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
+    var inviteUrl by remember { mutableStateOf("") }
+    val clipboardManager = LocalClipboardManager.current
     
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        if (!isSearchActive) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "$greetingTime, $name",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                Row {
-                    IconButton(onClick = onSearchClick) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    
-                    Image(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable { onProfileClick() }
-                            .padding(8.dp)
-                    )
-                }
-            }
-        } else {
-            SearchBar(
-                query = searchQuery,
-                onQueryChange = onSearchQueryChange,
-                onClearSearch = onClearSearch,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun BalanceSummaryCard(
-    currentAmount: Double,
-    previousAmount: Double,
-    selectedRange: TimeRange,
-    calendar: Calendar,
-    monthlyBudget: Double? = null
-) {
-    val title = when (selectedRange) {
-        TimeRange.TODAY -> {
-            when {
-                DateUtils.isToday(calendar) -> "Total Spent Today"
-                DateUtils.isYesterday(calendar) -> "Total Spent Yesterday"
-                else -> {
-                    val monthDayFormat = SimpleDateFormat("MMMM d", Locale.getDefault())
-                    "Total Spent on ${monthDayFormat.format(calendar.time)}"
-                }
-            }
-        }
-        TimeRange.WEEK -> if (DateUtils.isThisWeek(calendar)) "Total Spent This Week" else "Total Spent in Week"
-        TimeRange.MONTH -> {
-            if (DateUtils.isThisMonth(calendar)) {
-                "Total Spent This Month"
-            } else {
-                val monthFormat = SimpleDateFormat("MMMM", Locale.getDefault())
-                "Total Spent in ${monthFormat.format(calendar.time)}"
-            }
-        }
-        TimeRange.YEAR -> {
-            if (DateUtils.isThisYear(calendar)) {
-                "Total Spent This Year"
-            } else {
-                val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-                "Total Spent in ${yearFormat.format(calendar.time)}"
-            }
-        }
-        TimeRange.ALL -> "Total Spent All Time"
-    }
-
-    val comparisonText: Pair<String, Color?>? = remember(currentAmount, previousAmount, selectedRange, calendar) {
-        val dayOfMonth = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
-        val isCurrentMonth = DateUtils.isThisMonth(calendar)
-        
-        if (selectedRange == TimeRange.MONTH && isCurrentMonth && dayOfMonth <= 3) {
-            if (previousAmount > 0) {
-                Pair("Last month total: ₹${String.format("%,.0f", previousAmount)}", Color.White.copy(alpha = 0.8f))
-            } else null
-        } else if (previousAmount == 0.0) {
-            if (currentAmount > 0) Pair("Start your savings journey! 🚀", Color.White.copy(alpha = 0.8f)) else null
-        } else {
-            val difference = currentAmount - previousAmount
-            val absDiff = abs(difference)
-            val formattedDiff = String.format("%,.0f", absDiff)
-            
-            when {
-                difference < 0 -> Pair("📉 ₹$formattedDiff less than last period", Color.White)
-                difference > 0 -> Pair("📈 ₹$formattedDiff more than last period", Color.White)
-                else -> Pair("Same as last period", Color.White.copy(alpha = 0.8f))
-            }
-        }
-    }
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(ElectricBlue, LightBlue)
-                    )
-                )
-                .fillMaxWidth()
-                .padding(24.dp)
-        ) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Join a Group", fontWeight = FontWeight.Bold) },
+        text = {
             Column {
-                Text(
-                    text = title,
-                    color = Color.White.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "₹${String.format("%,.2f", currentAmount)}",
-                    color = Color.White,
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                
-                // Progress Bar for Budget
-                if (monthlyBudget != null && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(calendar)) {
-                    val progress = (currentAmount / monthlyBudget).coerceIn(0.0, 1.0).toFloat()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Column {
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = if (progress > 0.9f) FintechRed else Color.White,
-                            trackColor = Color.White.copy(alpha = 0.2f),
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(
-                                text = "₹${String.format("%,.0f", currentAmount)} of ₹${String.format("%,.0f", monthlyBudget)}",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Text(
-                                text = "${(progress * 100).toInt()}%",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold
-                            )
+                Text("Paste an invitation link here to join a shared group.", fontSize = 14.sp, color = Color.Gray)
+                Spacer(Modifier.height(20.dp))
+                OutlinedTextField(
+                    value = inviteUrl,
+                    onValueChange = { inviteUrl = it },
+                    label = { Text("Invite Link") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            clipboardManager.getText()?.text?.let { text ->
+                                inviteUrl = text
+                            }
+                        }) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste from clipboard")
                         }
                     }
-                }
-                
-                if (comparisonText != null && selectedRange != TimeRange.ALL && (monthlyBudget == null || selectedRange != TimeRange.MONTH)) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = comparisonText.first,
-                        color = comparisonText.second ?: Color.White,
-                        style = MaterialTheme.typography.bodySmall)
-                }
+                )
             }
-        }
-    }
-}
-
-@Composable
-private fun ChartLegend(expenses: List<Expense>, modifier: Modifier = Modifier) {
-    val categoryTotals = remember(expenses) {
-        expenses.groupBy { it.category }
-            .mapValues { entry -> entry.value.sumOf { it.amount } }
-    }
-    val totalAmount = categoryTotals.values.sum()
-
-    Column(modifier = modifier) {
-        categoryTotals.forEach { (category, amount) ->
-            val percentage = (amount / totalAmount * 100).toFloat()
-            val style = CategoryStyling.getStyle(category)
-            
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-                Box(modifier = Modifier.size(12.dp).background(style.color, CircleShape))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(category, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-                Text("${String.format("%.1f", percentage)}%", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (inviteUrl.isNotBlank()) onJoin(inviteUrl) },
+                enabled = inviteUrl.isNotBlank(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Join")
             }
-        }
-    }
-}
-
-@Composable
-private fun GroupsList(groups: List<Group>, expenses: List<Expense>, onGroupClick: (Int) -> Unit, onNewGroupClick: () -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp)
-    ) {
-        item {
-            NewGroupCard(onClick = onNewGroupClick)
-        }
-        items(groups) { group ->
-            val groupExpenses = expenses.filter { it.groupId == group.groupId }
-            val groupTotal = groupExpenses
-                .filter { it.category != "Settlement" } 
-                .sumOf { it.amount }
-
-            GroupCard(
-                groupName = group.name,
-                totalAmount = groupTotal, 
-                onClick = { onGroupClick(group.groupId) }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NewGroupCard(onClick: () -> Unit) {
-    val stroke = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    Card(onClick = onClick, modifier = Modifier.height(140.dp).width(120.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()){
-                drawRoundRect(color = onSurface.copy(alpha = 0.3f), style = stroke, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(Icons.Default.Add, contentDescription = "New Group", tint = onSurface.copy(alpha = 0.6f))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("New Group", color = onSurface.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GroupCard(groupName: String, totalAmount: Double, onClick: () -> Unit) {
-    val pastelColors = listOf(
-        Color(0xFFE3F2FD),
-        Color(0xFFF3E5F5),
-        Color(0xFFFFF0E5),
-        Color(0xFFE8F5E9)
+        },
+        shape = RoundedCornerShape(24.dp)
     )
-    
-    val cardColor = if (pastelColors.isNotEmpty()) {
-        val index = abs(groupName.hashCode() % pastelColors.size)
-        pastelColors[index]
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-
-    Card(
-        modifier = Modifier
-            .height(140.dp)
-            .width(120.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = cardColor),
-        onClick = onClick
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text(
-                text = groupName,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF1A1A1A),
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = "₹${totalAmount.toInt()}",
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1A1A1A),
-                style = MaterialTheme.typography.bodyLarge
-            )
-        }
-    }
 }
 
 @Composable
-private fun EmptyState(isSearching: Boolean = false) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Spacer(modifier = Modifier.height(48.dp))
-        Icon(
-            imageVector = if (isSearching) Icons.Default.SearchOff else Icons.Default.AccountBalanceWallet,
-            contentDescription = "Empty",
-            modifier = Modifier.size(64.dp),
-            tint = Color.LightGray
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = if (isSearching) "No transactions found matching your search." else "No transactions yet. Tap the '+' button to add your first one!",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
-    }
+fun PermissionExplanationDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Auto-Track Expenses", fontWeight = FontWeight.Bold) },
+        text = {
+            Text("Cleave needs permission to read payment notifications to automatically track your expenses. This data is processed strictly locally and never leaves your device.")
+        },
+        confirmButton = {
+            Button(onClick = onConfirm, shape = RoundedCornerShape(12.dp)) {
+                Text("Continue")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Maybe Later")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
 @Composable
-fun HomeScreenWithGroupsPreview() {
-    ContextTheme {
-        HomeScreen(
-            homeViewModel = FakeHomeViewModelFactory.create(),
-            onNavigateToGroup = {}, 
-            onCreateGroupClick = {}, 
-            onAddExpenseClick = {}, 
-            onExpenseClick = {}, 
-            onProfileClick = {}, 
-            onViewAllClick = {},
-            onUpdateClick = {},
-            onScanReceiptClick = {},
-            onSetBudgetClick = {}
-        )
-    }
+fun BatteryOptimizationExplanationDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Background Tracking", fontWeight = FontWeight.Bold) },
+        text = {
+            Text("To ensure auto-tracking works reliably, Cleave needs to run in the background. Please allow it to 'Ignore Battery Optimizations' in the next screen.")
+        },
+        confirmButton = {
+            Button(onClick = onConfirm, shape = RoundedCornerShape(12.dp)) {
+                Text("Go to Settings")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
 }

@@ -15,8 +15,8 @@ android {
         applicationId = "com.context.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 41
-        versionName = "1.2"
+        versionCode = 58
+        versionName = "1.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -71,6 +71,8 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.1.0"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
+    implementation("com.google.firebase:firebase-database")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Biometric
     implementation("androidx.biometric:biometric:1.1.0")
@@ -83,6 +85,7 @@ dependencies {
 
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")
+    implementation(libs.firebase.functions)
     ksp("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
@@ -90,6 +93,10 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+
+    // Jetpack Glance (Stable 1.1.1 for compatibility with AGP 8.5.1)
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
 
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")

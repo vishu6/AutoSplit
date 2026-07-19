@@ -8,19 +8,28 @@ import android.os.VibratorManager
 
 object HapticUtils {
 
+    // Haptics are now always on as per the latest requirement
+    private fun shouldVibrate(): Boolean {
+        return true
+    }
+
     fun playTick(context: Context) {
+        if (!shouldVibrate()) return
         vibrate(context, VibrationEffect.EFFECT_TICK, 10L)
     }
 
     fun playClick(context: Context) {
+        if (!shouldVibrate()) return
         vibrate(context, VibrationEffect.EFFECT_CLICK, 20L)
     }
 
     fun playHeavyClick(context: Context) {
+        if (!shouldVibrate()) return
         vibrate(context, VibrationEffect.EFFECT_HEAVY_CLICK, 50L)
     }
 
     fun playDoubleTick(context: Context) {
+        if (!shouldVibrate()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             vibrate(context, VibrationEffect.EFFECT_DOUBLE_CLICK, 20L)
         } else {
@@ -29,6 +38,7 @@ object HapticUtils {
     }
 
     fun playThud(context: Context) {
+        if (!shouldVibrate()) return
         // Long satisfying pulse for settlement
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrate(context, -1, 100L, VibrationEffect.DEFAULT_AMPLITUDE)
@@ -38,6 +48,7 @@ object HapticUtils {
     }
 
     fun playWarning(context: Context) {
+        if (!shouldVibrate()) return
         // Three rapid pulses
         vibratePattern(context, longArrayOf(0, 30, 50, 30, 50, 30), -1)
     }
