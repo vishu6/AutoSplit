@@ -212,7 +212,6 @@ fun CreateGroupScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(onClick = {
                         if (newMemberName.isNotBlank()) {
-                            // Case-insensitive check to prevent manual duplicates
                             if (!members.any { it.name.equals(newMemberName.trim(), ignoreCase = true) }) {
                                 members.add(Member(newMemberName.trim()))
                                 newMemberName = ""
@@ -237,7 +236,6 @@ fun CreateGroupScreen(
                             val syncKey = GroupCryptoUtils.generateSecretKey()
                             val remoteId = UUID.randomUUID().toString()
                             
-                            // Deduplicate members case-insensitively before saving
                             val uniqueNames = members.map { it.name }.distinctBy { it.lowercase() }
                             val membersString = uniqueNames.joinToString(",")
                             
@@ -315,7 +313,7 @@ fun CreateGroupScreen(
                                     onClick = {
                                         HapticUtils.playTick(context)
                                         val g = createdGroup!!
-                                        // SMART HANDSHAKE: Include 'invitee' hint in the URL
+                                        // Use legacy domain for stability (App Links)
                                         val inviteLink = "https://autosplit-fdf12.web.app/join?id=${g.remoteId}&key=${Uri.encode(g.syncKey)}&name=${Uri.encode(g.name)}&user=${Uri.encode(myName)}&invitee=${Uri.encode(member.name)}"
                                         
                                         val message = "Hey ${member.name}! Join my group '${g.name}' on Cleave to track expenses together.\n\n" +

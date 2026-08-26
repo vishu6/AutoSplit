@@ -15,8 +15,8 @@ android {
         applicationId = "com.context.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 56
-        versionName = "1.5.0"
+        versionCode = 61
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -72,6 +72,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-database")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Biometric
     implementation("androidx.biometric:biometric:1.1.0")

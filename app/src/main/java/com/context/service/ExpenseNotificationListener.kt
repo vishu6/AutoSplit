@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 class ExpenseNotificationListener : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO)
-    private val TAG = "ExpenseListener"
+    private val TAG = "CleaveSyncListener"
 
     // EXPANDED package list to cover most Indian Banks and SMS apps
     private val allowedApps = setOf(

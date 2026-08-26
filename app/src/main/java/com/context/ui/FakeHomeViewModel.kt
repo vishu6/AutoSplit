@@ -6,14 +6,16 @@ import com.context.data.Expense
 import com.context.data.ExpenseDao
 import com.context.data.Group
 import com.context.data.GroupMember
+import com.context.data.RecurringExpense
+import com.context.data.RecurringExpenseDao
 import com.context.sync.GroupSyncManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * A fake implementation of the ExpenseDao for use in Previews.
+ * A fake implementation of the ExpenseDao and RecurringExpenseDao for use in Previews.
  */
-class FakeExpenseDao : ExpenseDao {
+class FakeExpenseDao : ExpenseDao, RecurringExpenseDao {
     override fun getAllExpenses(): Flow<List<Expense>> = MutableStateFlow(emptyList())
     override suspend fun getExpenseById(id: Int): Expense? = null
     override suspend fun getExpenseByRemoteId(remoteId: String): Expense? = null
@@ -49,11 +51,23 @@ class FakeExpenseDao : ExpenseDao {
     override suspend fun deleteMember(groupId: Int, oldName: String) {}
     override suspend fun updateExpensePayer(groupId: Int, oldName: String, newName: String) {}
     override suspend fun renameMemberInGroup(groupId: Int, oldName: String, newName: String) {}
+    override suspend fun deactivateMember(groupId: Int, name: String) {}
+    override suspend fun reactivateMember(groupId: Int, name: String) {}
 
-    // Category Methods (Fixed: Implemented missing members)
+    // Category Methods
     override suspend fun insertCategory(category: Category) {}
     override fun getAllCategories(): Flow<List<Category>> = MutableStateFlow(emptyList())
     override suspend fun deleteCategory(category: Category) {}
+
+    // Recurring Expense Methods
+    override suspend fun insert(recurringExpense: RecurringExpense): Long = 0L
+    override suspend fun update(recurringExpense: RecurringExpense) {}
+    override suspend fun delete(recurringExpense: RecurringExpense) {}
+    override fun getAllActiveRecurringExpenses(): Flow<List<RecurringExpense>> = MutableStateFlow(emptyList())
+    override fun getAllTrackedRecurringExpenses(): Flow<List<RecurringExpense>> = MutableStateFlow(emptyList())
+    override suspend fun getRecurringExpenseByMerchant(merchant: String): RecurringExpense? = null
+    override suspend fun getAllRecurringExpensesSync(): List<RecurringExpense> = emptyList()
+    override suspend fun suppressRecurringExpense(id: Int) {}
 }
 
 /**
@@ -63,6 +77,6 @@ object FakeHomeViewModelFactory {
     fun create(context: Context): HomeViewModel {
         val fakeDao = FakeExpenseDao()
         val dummySyncManager = GroupSyncManager(fakeDao, context)
-        return HomeViewModel(fakeDao, dummySyncManager, context)
+        return HomeViewModel(fakeDao, fakeDao, dummySyncManager, context)
     }
 }

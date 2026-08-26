@@ -63,6 +63,7 @@ fun HomeScreen(
     onExpenseClick: (Int) -> Unit,
     onProfileClick: () -> Unit,
     onViewAllClick: () -> Unit,
+    onViewAllRecurringClick: () -> Unit,
     onUpdateClick: () -> Unit,
     onScanReceiptClick: () -> Unit,
     onSetBudgetClick: () -> Unit
@@ -83,6 +84,7 @@ fun HomeScreen(
     val categorySpentMap by homeViewModel.currentMonthCategorySpent.collectAsState()
     
     val categoryMap by homeViewModel.categoryMap.collectAsState()
+    val activeRecurringExpenses by homeViewModel.activeRecurringExpenses.collectAsState()
 
     val context = LocalContext.current
     val privacyMode by remember { SecurityUtils.getPrivacyModeFlow(context) }.collectAsState(initial = SecurityUtils.isPrivacyModeEnabled(context))
@@ -99,6 +101,7 @@ fun HomeScreen(
     var showPermissionBanner by remember { mutableStateOf(false) }
     var showBatteryBanner by remember { mutableStateOf(false) }
     var showJoinDialog by remember { mutableStateOf(false) }
+    var showRecurringDialog by remember { mutableStateOf<Int?>(null) }
 
     var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
     var currentGreeting by remember { mutableStateOf(DateUtils.getGreeting()) }
@@ -122,6 +125,12 @@ fun HomeScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                // SAFETY RESET: Home screen doesn't support custom range picker, 
+                // so reset to Month if user returns from AllTransactions with a custom filter.
+                if (homeViewModel.selectedTimeRange.value == TimeRange.CUSTOM) {
+                    homeViewModel.onTimeRangeSelected(TimeRange.MONTH)
+                }
+
                 savedName = OnboardingUtils.getUserName(context)
                 currentGreeting = DateUtils.getGreeting()
                 isBudgetSet = BudgetUtils.isBudgetSet(context)
@@ -205,7 +214,8 @@ fun HomeScreen(
                                     onRangeSelected = { HapticUtils.playTick(context); homeViewModel.onTimeRangeSelected(it) },
                                     calendar = currentCalendar,
                                     onNext = { HapticUtils.playTick(context); homeViewModel.onNextPeriod() },
-                                    onPrevious = { HapticUtils.playTick(context); homeViewModel.onPreviousPeriod() }
+                                    onPrevious = { HapticUtils.playTick(context); homeViewModel.onPreviousPeriod() },
+                                    showCustom = false // Hide custom on home screen
                                 )
                                 
                                 BudgetPulseSection(
@@ -228,6 +238,17 @@ fun HomeScreen(
                 }
 
                 if (!isSearchActive) {
+                    item {
+                        RecurringSection(
+                            recurringExpenses = activeRecurringExpenses,
+                            expenses = transactions,
+                            isPrivacyMode = privacyMode,
+                            onViewAllClick = onViewAllRecurringClick,
+                            onMarkAsPaid = { homeViewModel.acceptSuggestion(it) },
+                            onDismissSuggestion = { homeViewModel.suppressRecurring(it) }
+                        )
+                    }
+
                     if (spendingExpenses.isNotEmpty()) {
                         item {
                             Spacer(modifier = Modifier.height(32.dp))
@@ -292,6 +313,7 @@ fun HomeScreen(
                             TimeRange.MONTH -> if (DateUtils.isThisMonth(currentCalendar)) "This Month's Transactions" else "Month's Transactions"
                             TimeRange.YEAR -> "Year's Transactions"
                             TimeRange.ALL -> "Recent Transactions"
+                            TimeRange.CUSTOM -> "Filtered Transactions"
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -306,7 +328,13 @@ fun HomeScreen(
                 } else {
                     items(if (isSearchActive) filteredExpenses else filteredExpenses.take(10), key = { expense: Expense -> expense.id }) { expense ->
                         val details = expense.toTransactionDetails()
-                        Box(modifier = Modifier.padding(horizontal = 16.dp).combinedClickable(onClick = { onExpenseClick(expense.id) }, onLongClick = { HapticUtils.playHeavyClick(context); onExpenseClick(expense.id) })) { 
+                        Box(modifier = Modifier.padding(horizontal = 16.dp).combinedClickable(
+                            onClick = { onExpenseClick(expense.id) }, 
+                            onLongClick = { 
+                                HapticUtils.playHeavyClick(context)
+                                showRecurringDialog = expense.id
+                            }
+                        )) { 
                             TransactionItemCard(
                                 transaction = details, 
                                 isPrivacyMode = privacyMode,
@@ -393,6 +421,32 @@ fun HomeScreen(
             )
         }
 
+        showRecurringDialog?.let { expenseId ->
+            AlertDialog(
+                onDismissRequest = { showRecurringDialog = null },
+                title = { Text("Recurring Expense", fontWeight = FontWeight.Bold) },
+                text = { Text("Would you like to mark this merchant as a recurring expense? Cleave will track it and notify you before the next payment.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            homeViewModel.markAsRecurring(expenseId)
+                            showRecurringDialog = null
+                            toaster.show("Added to recurring expenses")
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Mark as Recurring")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRecurringDialog = null }) {
+                        Text("Cancel")
+                    }
+                },
+                shape = RoundedCornerShape(24.dp)
+            )
+        }
+
         if (fabExpanded) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { fabExpanded = false })
         Box(modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(16.dp), contentAlignment = Alignment.BottomEnd) { RefinedFab(isExpanded = fabExpanded, onMainFabClick = { HapticUtils.playTick(context); fabExpanded = !fabExpanded }, onManualEntryClick = { HapticUtils.playTick(context); fabExpanded = false; onAddExpenseClick() }, onScanReceiptClick = { HapticUtils.playTick(context); fabExpanded = false; onScanReceiptClick() }) }
     }
@@ -422,7 +476,8 @@ fun HomeTopBar(
         if (!isSearchActive) {
             Column {
                 Text(text = "$greeting,", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
-                Text(text = name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                // Global Formatting: Title Case for User Name
+                Text(text = name.toTitleCase(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.Black)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPrivacyToggle) {
@@ -473,7 +528,7 @@ fun BalanceSummaryCard(
     monthlyBudget: Double?,
     isPrivacyMode: Boolean
 ) {
-    val isMainView = selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(calendar)
+    val cardLabel = DateUtils.getPreciseLabel(selectedRange, calendar)
     
     // Rolling number animations
     var triggerRoll by remember { mutableStateOf(false) }
@@ -509,7 +564,7 @@ fun BalanceSummaryCard(
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                     Text(
-                        text = if (isMainView) "Total Spent This Month" else "Total for Period",
+                        text = cardLabel,
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
@@ -579,7 +634,8 @@ fun BalanceSummaryCard(
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         val usagePercent = (actualProgress * 100).toInt()
-                        val budgetText = if (isPrivacyMode) "••••" else monthlyBudget.toInt().toString()
+                        // Global Formatting: Use formatSmallAmount for the budget limit to get commas
+                        val budgetText = CurrencyMasker.formatSmallAmount(monthlyBudget, isPrivacyMode).replace("₹", "")
                         Text("$usagePercent% of ₹$budgetText budget used", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }

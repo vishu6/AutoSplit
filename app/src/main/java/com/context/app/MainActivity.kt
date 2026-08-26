@@ -72,18 +72,21 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        // 1. Handle Widget Actions (Production stable approach)
+        // 1. Handle Widget Actions
         val widgetAction = intent?.getStringExtra(BudgetWidget.KEY_WIDGET_ACTION.name)
         if (widgetAction == BudgetWidget.ACTION_ADD_EXPENSE) {
-            // Signal navigation to open Add Expense
-            // This can be handled via a deep link or internal navigation event
             val addIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("cleave://add"))
             intent.data = addIntent.data
         }
 
-        // 2. Handle Group Joining and other Deep Links
+        // 2. Handle Group Joining (Web Links and Custom Schemes)
         intent?.data?.let { uri ->
-            if (uri.host == "join" || uri.path?.contains("join") == true) {
+            val isJoinLink = uri.host == "join" || 
+                            uri.path?.contains("join") == true || 
+                            uri.host == "cleaveapp.in" || 
+                            uri.host?.contains("autosplit") == true
+
+            if (isJoinLink) {
                 groupSyncManager.joinByUrl(
                     url = uri.toString(),
                     onComplete = { /* AppNavigation handles navigation */ },

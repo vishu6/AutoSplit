@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 class MyNotificationListenerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO)
-    private val TAG = "AutoSplitListener"
+    private val TAG = "CleaveListener"
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName

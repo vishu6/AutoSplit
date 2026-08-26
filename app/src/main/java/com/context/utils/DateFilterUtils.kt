@@ -3,7 +3,7 @@ package com.context.utils
 import java.util.Calendar
 
 enum class TimeRange {
-    TODAY, WEEK, MONTH, YEAR, ALL
+    TODAY, WEEK, MONTH, YEAR, ALL, CUSTOM
 }
 
 object DateFilterUtils {
@@ -44,6 +44,12 @@ object DateFilterUtils {
                 endTime = cal.timeInMillis - 1
             }
             TimeRange.ALL -> {
+                startTime = 0L
+                endTime = Long.MAX_VALUE
+            }
+            TimeRange.CUSTOM -> {
+                // For custom, the caller is responsible for providing bounds
+                // Returning full range as a fallback
                 startTime = 0L
                 endTime = Long.MAX_VALUE
             }

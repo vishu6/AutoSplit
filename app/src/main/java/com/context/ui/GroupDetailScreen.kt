@@ -3,8 +3,10 @@ package com.context.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,8 +20,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PersonAddAlt1
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sync
@@ -39,6 +44,7 @@ import com.context.data.Group
 import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ElectricBlue
 import com.context.utils.*
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,19 +61,28 @@ fun GroupDetailScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val toaster = LocalToaster.current
+    
     val expenses by viewModel.expenses.collectAsState()
     val group by viewModel.group.collectAsState()
     val totalSpent by viewModel.groupTotal.collectAsState()
     val yourBalance by viewModel.yourBalance.collectAsState()
     val memberBalances by viewModel.memberBalances.collectAsState()
+    val inactiveMembers by viewModel.inactiveMemberBalances.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     
     val privacyMode by remember { SecurityUtils.getPrivacyModeFlow(context) }.collectAsState(initial = SecurityUtils.isPrivacyModeEnabled(context))
+    val myName = remember { OnboardingUtils.getUserName(context) }
+    val isCreator = remember(group, myName) {
+        group?.members?.split(",")?.firstOrNull()?.equals(myName, ignoreCase = true) == true
+    }
 
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
     var selectedChartCategory by remember { mutableStateOf<String?>(null) }
+    var errorDialogContent by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showPastMembers by remember { mutableStateOf(false) }
 
     val displayExpenses = remember(expenses, selectedChartCategory) {
         if (selectedChartCategory == null) expenses
@@ -76,6 +91,31 @@ fun GroupDetailScreen(
 
     LaunchedEffect(group) {
         group?.let { viewModel.startSync(it) }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.uiEvents.collectLatest { event ->
+            when (event) {
+                is GroupUiEvent.ShowSnackbar -> toaster.show(event.message)
+                is GroupUiEvent.ShowErrorDialog -> {
+                    errorDialogContent = event.title to event.message
+                }
+            }
+        }
+    }
+
+    if (errorDialogContent != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogContent = null },
+            title = { Text(errorDialogContent!!.first) },
+            text = { Text(errorDialogContent!!.second) },
+            confirmButton = {
+                TextButton(onClick = { errorDialogContent = null }) {
+                    Text("OK")
+                }
+            },
+            shape = RoundedCornerShape(28.dp)
+        )
     }
 
     if (showDeleteDialog) {
@@ -161,8 +201,11 @@ fun GroupDetailScreen(
                                 onClick = { 
                                     showMenu = false
                                     group?.let { g ->
-                                        val myName = OnboardingUtils.getUserName(context)
-                                        val inviteLink = "https://autosplit-fdf12.web.app/join?id=${g.remoteId}&key=${Uri.encode(g.syncKey)}&name=${Uri.encode(g.name)}&user=${Uri.encode(myName)}&invitee=${Uri.encode(myName)}"
+                                        // SMART HANDSHAKE: Find a member who hasn't joined yet
+                                        val placeholder = memberBalances.find { !it.isSynced }?.name ?: ""
+                                        
+                                        // Use legacy domain for stability (App Links)
+                                        val inviteLink = "https://autosplit-fdf12.web.app/join?id=${g.remoteId}&key=${Uri.encode(g.syncKey)}&name=${Uri.encode(g.name)}&user=${Uri.encode(myName)}${if(placeholder.isNotBlank()) "&invitee=${Uri.encode(placeholder)}" else ""}"
                                         
                                         val shareMessage = "Join my Cleave group '${g.name}' to track expenses together!\n\n" +
                                                           "Click to join: $inviteLink"
@@ -183,6 +226,16 @@ fun GroupDetailScreen(
                                 onClick = { onSettleUpClick(); showMenu = false },
                                 leadingIcon = { Icon(Icons.Default.Savings, contentDescription = "Settle Up") }
                             )
+                            if (!isCreator) {
+                                DropdownMenuItem(
+                                    text = { Text("Leave Group") },
+                                    onClick = { 
+                                        showMenu = false
+                                        viewModel.tryDeleteMember(myName)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = "Leave Group") }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Delete Group") },
                                 onClick = { showDeleteDialog = true; showMenu = false },
@@ -209,8 +262,8 @@ fun GroupDetailScreen(
             if (group != null) {
                 FloatingActionButton(
                     onClick = onAddExpenseClick,
-                    containerColor = ElectricBlue, // SOLID OPAQUE COLOR
-                    contentColor = Color.White,    // CONTRAST ICON
+                    containerColor = ElectricBlue,
+                    contentColor = Color.White,
                     shape = CircleShape
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add Expense")
@@ -306,7 +359,62 @@ fun GroupDetailScreen(
                     }
                     
                     items(memberBalances) { balance ->
-                        MemberBalanceItem(balance, group, context, privacyMode)
+                        MemberBalanceItem(
+                            balance = balance, 
+                            group = group, 
+                            context = context, 
+                            isPrivacyMode = privacyMode,
+                            canDelete = isCreator,
+                            onDeleteClick = { viewModel.tryDeleteMember(balance.name) }
+                        )
+                    }
+                }
+
+                if (inactiveMembers.isNotEmpty() && selectedChartCategory == null) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showPastMembers = !showPastMembers }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.History, 
+                                    contentDescription = null, 
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Past Members (${inactiveMembers.size})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.Gray
+                                )
+                            }
+                            Icon(
+                                if (showPastMembers) Icons.Default.Close else Icons.Default.Add,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (showPastMembers) {
+                        items(inactiveMembers) { balance ->
+                            MemberBalanceItem(
+                                balance = balance,
+                                group = group,
+                                context = context,
+                                isPrivacyMode = privacyMode,
+                                canDelete = isCreator,
+                                isPastMember = true,
+                                onReactivateClick = { viewModel.reactivateMember(balance.name) }
+                            )
+                        }
                     }
                 }
 
@@ -339,10 +447,14 @@ fun MemberBalanceItem(
     balance: MemberBalance, 
     group: Group?, 
     context: android.content.Context,
-    isPrivacyMode: Boolean = false
+    isPrivacyMode: Boolean = false,
+    canDelete: Boolean = false,
+    isPastMember: Boolean = false,
+    onDeleteClick: () -> Unit = {},
+    onReactivateClick: () -> Unit = {}
 ) {
     val isOwed = balance.amount > 0
-    val isSettled = Math.abs(balance.amount) < 0.01
+    val isSettled = Math.abs(balance.amount) < 0.02
     
     val avatarColor = remember(balance.name) {
         val colors = listOf(Color(0xFFBBDEFB), Color(0xFFFFCDD2), Color(0xFFC8E6C9), Color(0xFFFFF9C4), Color(0xFFD1C4E9), Color(0xFFFFE0B2))
@@ -355,7 +467,12 @@ fun MemberBalanceItem(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (isPastMember) 
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+            else 
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
     ) {
         Row(
             modifier = Modifier
@@ -365,7 +482,7 @@ fun MemberBalanceItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = avatarColor,
+                color = if (isPastMember) avatarColor.copy(alpha = 0.4f) else avatarColor,
                 modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -373,7 +490,7 @@ fun MemberBalanceItem(
                         text = balance.name.take(1).uppercase(),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
-                        color = textColor
+                        color = if (isPastMember) textColor.copy(alpha = 0.5f) else textColor
                     )
                 }
             }
@@ -384,9 +501,10 @@ fun MemberBalanceItem(
                 Text(
                     text = balance.name,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isPastMember) Color.Gray else MaterialTheme.colorScheme.onSurface
                 )
-                if (!balance.isSynced) {
+                if (!balance.isSynced && !isPastMember) {
                     Text(
                         text = "Invite pending",
                         style = MaterialTheme.typography.labelSmall,
@@ -423,8 +541,24 @@ fun MemberBalanceItem(
             }
             
             Column(horizontalAlignment = Alignment.End) {
-                if (isSettled) {
-                    Text(text = "Settled Up", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                if (isPastMember) {
+                    if (canDelete) {
+                        IconButton(onClick = onReactivateClick, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.PersonAddAlt1, contentDescription = "Re-add", tint = ElectricBlue)
+                        }
+                    } else {
+                        Text(text = "Inactive", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
+                    }
+                } else if (isSettled) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "Settled Up", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                        if (canDelete) {
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Gray.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
                 } else {
                     Text(
                         text = if (isOwed) "is owed" else "owes group",
@@ -490,11 +624,11 @@ fun GroupTransactionItem(
                         maxLines = 1
                     )
                     if (expense.isSynced) {
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.6.dp))
                         Icon(
                             Icons.Default.CloudDone, 
                             contentDescription = "Synced", 
-                            tint = Color(0xFF4CAF50), // Green for success
+                            tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(16.dp)
                         )
                     } else {

@@ -32,14 +32,26 @@ class DailySummaryWorker(
         val db = ExpenseDatabase.getDatabase(applicationContext)
         val dao = db.expenseDao()
 
-        // 1. Calculate Today's Total and Top Category
+        // 1. Calculate Logical Day Start
         val calendar = Calendar.getInstance()
+        val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
+        
+        // If it's early morning (before 6 AM), we are likely reporting on the previous day's spend
+        // because the system delayed the 10 PM notification.
+        if (currentHour < 6) {
+            calendar.add(Calendar.DAY_OF_YEAR, -1)
+        }
+
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         val dayStart = calendar.timeInMillis
         
-        val todayExpenses = dao.getExpensesSince(dayStart)
+        // Use a 24-hour window from the calculated dayStart
+        val dayEnd = dayStart + (24 * 60 * 60 * 1000) - 1
+        
+        val todayExpenses = dao.getExpensesSince(dayStart).filter { it.timestamp <= dayEnd }
         val todayTotal = todayExpenses.sumOf { it.amount }
 
         val topCategory = todayExpenses

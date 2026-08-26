@@ -65,10 +65,18 @@ fun ModernTimeRangeFilter(
     calendar: Calendar,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showCustom: Boolean = false,
+    customRangeLabel: String? = null
 ) {
+    val ranges = if (showCustom) {
+        TimeRange.entries
+    } else {
+        TimeRange.entries.filter { it != TimeRange.CUSTOM }
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
-        // RESPONSIVE FILTER ROW: Uses weights to ensure 5 items always fit
+        // RESPONSIVE FILTER ROW: Uses weights to ensure all items fit perfectly
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -76,13 +84,13 @@ fun ModernTimeRangeFilter(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TimeRange.entries.forEach { range ->
+            ranges.forEach { range ->
                 val isSelected = range == selectedRange
                 val label = range.name.lowercase().replaceFirstChar { it.uppercase() }
                 
                 Box(
                     modifier = Modifier
-                        .weight(1f) // Ensures 20% width per item
+                        .weight(1f) // Automatically rebalances width based on item count
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (isSelected) ElectricBlue.copy(alpha = 0.1f) else Color.Transparent)
                         .border(
@@ -102,7 +110,7 @@ fun ModernTimeRangeFilter(
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Visible,
-                        fontSize = 12.sp, // Slightly smaller to guarantee fit on mid-range devices
+                        fontSize = if (showCustom) 11.sp else 12.sp,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -127,6 +135,7 @@ fun ModernTimeRangeFilter(
                 TimeRange.MONTH -> monthYearFormat.format(calendar.time)
                 TimeRange.YEAR -> yearFormat.format(calendar.time)
                 TimeRange.ALL -> ""
+                TimeRange.CUSTOM -> customRangeLabel ?: "Custom Range"
             }
 
             Row(
@@ -136,24 +145,36 @@ fun ModernTimeRangeFilter(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onPrevious) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBackIos,
-                        contentDescription = "Previous",
-                        modifier = Modifier.size(16.dp)
-                    )
+                if (selectedRange != TimeRange.CUSTOM) {
+                    IconButton(onClick = onPrevious) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBackIos,
+                            contentDescription = "Previous",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(48.dp))
                 }
+
                 Text(
                     text = navigatorLabel,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
                 )
-                IconButton(onClick = onNext) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForwardIos,
-                        contentDescription = "Next",
-                        modifier = Modifier.size(16.dp)
-                    )
+
+                if (selectedRange != TimeRange.CUSTOM) {
+                    IconButton(onClick = onNext) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = "Next",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(48.dp))
                 }
             }
         }

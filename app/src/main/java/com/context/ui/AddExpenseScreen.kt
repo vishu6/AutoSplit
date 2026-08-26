@@ -74,6 +74,15 @@ fun AddExpenseScreen(
     var selectedGroup by remember { mutableStateOf<Group?>(null) }
     var isGroupDropdownExpandedForGroups by remember { mutableStateOf(false) }
 
+    // Active Members State (Filtered)
+    val activeMembers by remember(selectedGroup) {
+        if (selectedGroup != null) {
+            viewModel.getActiveMembers(selectedGroup!!.groupId)
+        } else {
+            kotlinx.coroutines.flow.flowOf(listOf("You"))
+        }
+    }.collectAsState(initial = listOf("You"))
+
     // Paid By State
     var paidBy by remember { mutableStateOf("You") }
     var isPaidByDropdownExpanded by remember { mutableStateOf(false) }
@@ -107,7 +116,7 @@ fun AddExpenseScreen(
     if (showAssignment) {
         ReceiptAssignmentScreen(
             items = detectedItems,
-            members = selectedGroup?.getMemberList() ?: listOf("You"),
+            members = activeMembers,
             onComplete = { total ->
                 amount = String.format("%.2f", total)
                 showAssignment = false
@@ -121,8 +130,12 @@ fun AddExpenseScreen(
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
-                showDatePicker = false
+                TextButton(onClick = {
+                    selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -184,24 +197,24 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedTimestamp)),
-                onValueChange = {},
-                label = { Text("Date") },
-                readOnly = true,
-                leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showDatePicker = true },
-                enabled = false,
-                colors = OutlinedTextFieldDefaults.colors(
-                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledBorderColor = MaterialTheme.colorScheme.outline,
-                    disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+            Box(modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }) {
+                OutlinedTextField(
+                    value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedTimestamp)),
+                    onValueChange = {},
+                    label = { Text("Date") },
+                    readOnly = true,
+                    enabled = false,
+                    leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 )
-            )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -300,8 +313,7 @@ fun AddExpenseScreen(
                         expanded = isPaidByDropdownExpanded,
                         onDismissRequest = { isPaidByDropdownExpanded = false }
                     ) {
-                        val members = selectedGroup?.getMemberList() ?: listOf("You")
-                        members.forEach { member ->
+                        activeMembers.forEach { member ->
                             DropdownMenuItem(
                                 text = { Text(member) },
                                 onClick = {
@@ -322,7 +334,7 @@ fun AddExpenseScreen(
                 Column {
                     Spacer(modifier = Modifier.height(24.dp))
                     SplitPreviewCard(
-                        members = selectedGroup?.getMemberList() ?: emptyList(),
+                        members = activeMembers,
                         totalAmount = amountDouble,
                         payer = paidBy
                     )

@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.context.data.Category
 import com.context.data.Expense
 import com.context.data.ExpenseDao
+import com.context.data.GroupMember
 import com.context.sync.GroupSyncManager
 import com.context.utils.WidgetUpdateHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,6 +31,12 @@ class AddExpenseViewModel @Inject constructor(
 
     val allCategories: StateFlow<List<Category>> = expenseDao.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun getActiveMembers(groupId: Int): Flow<List<String>> {
+        return expenseDao.getMembersForGroup(groupId).map { members ->
+            members.filter { it.isActive }.map { it.name }
+        }
+    }
 
     fun saveExpense(expense: Expense) {
         viewModelScope.launch {

@@ -33,7 +33,7 @@ data class Group(
     val isSyncEnabled: Boolean = false
 ) {
     fun getMemberList(): List<String> {
-        return members.split(",").filter { it.isNotBlank() }
+        return members.split(",").map { it.trim() }.filter { it.isNotBlank() }
     }
 }
 
@@ -43,7 +43,8 @@ data class GroupMember(
     val name: String,
     val upiId: String? = null,
     val phone: String? = null,
-    val lastSynced: Long = System.currentTimeMillis()
+    val lastSynced: Long = System.currentTimeMillis(),
+    val isActive: Boolean = true
 )
 
 @Dao
@@ -121,6 +122,12 @@ interface ExpenseDao {
     @Query("DELETE FROM group_members WHERE groupId = :groupId AND name = :oldName")
     suspend fun deleteMember(groupId: Int, oldName: String)
 
+    @Query("UPDATE group_members SET isActive = 0 WHERE groupId = :groupId AND name = :name")
+    suspend fun deactivateMember(groupId: Int, name: String)
+
+    @Query("UPDATE group_members SET isActive = 1 WHERE groupId = :groupId AND name = :name")
+    suspend fun reactivateMember(groupId: Int, name: String)
+
     @Query("SELECT COUNT(*) FROM expenses")
     suspend fun getTransactionCount(): Int
 
@@ -154,46 +161,23 @@ interface ExpenseDao {
 }
 
 
-@Database(entities = [Expense::class, Group::class, GroupMember::class, Category::class], version = 12)
+@Database(entities = [Expense::class, Group::class, GroupMember::class, Category::class, RecurringExpense::class], version = 14)
 abstract class ExpenseDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
+    abstract fun recurringExpenseDao(): RecurringExpenseDao
 
     companion object {
         @Volatile private var INSTANCE: ExpenseDatabase? = null
 
-        private val MIGRATION_7_8 = object : Migration(7, 8) {
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE expenses ADD COLUMN autoSource TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE group_members ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1")
             }
         }
 
-        private val MIGRATION_8_9 = object : Migration(8, 9) {
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE expenses ADD COLUMN remoteId TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE expenses ADD COLUMN isSynced INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE `groups` ADD COLUMN remoteId TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE `groups` ADD COLUMN syncKey TEXT DEFAULT NULL")
-                database.execSQL("ALTER TABLE `groups` ADD COLUMN isSyncEnabled INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("UPDATE expenses SET remoteId = id || '-' || (strftime('%s','now')) WHERE remoteId = ''")
-                database.execSQL("UPDATE `groups` SET remoteId = groupId || '-' || (strftime('%s','now')) WHERE remoteId = ''")
-            }
-        }
-
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("CREATE TABLE IF NOT EXISTS `group_members` (`groupId` INTEGER NOT NULL, `name` TEXT NOT NULL, `upiId` TEXT, `lastSynced` INTEGER NOT NULL, PRIMARY KEY(`groupId`, `name`))")
-            }
-        }
-
-        private val MIGRATION_10_11 = object : Migration(10, 11) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE group_members ADD COLUMN phone TEXT")
-            }
-        }
-
-        private val MIGRATION_11_12 = object : Migration(11, 12) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("CREATE TABLE IF NOT EXISTS `categories` (`name` TEXT NOT NULL, `iconName` TEXT NOT NULL, `colorHex` TEXT NOT NULL, `isSystem` INTEGER NOT NULL, PRIMARY KEY(`name`))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS `recurring_expenses` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `merchant` TEXT NOT NULL, `averageAmount` REAL NOT NULL, `frequencyDays` INTEGER NOT NULL, `lastPaidDate` INTEGER NOT NULL, `nextExpectedDate` INTEGER NOT NULL, `isAutoDetected` INTEGER NOT NULL, `confidenceScore` REAL NOT NULL, `isActive` INTEGER NOT NULL, `category` TEXT NOT NULL, `isSuppressed` INTEGER NOT NULL)")
             }
         }
 
@@ -205,13 +189,10 @@ abstract class ExpenseDatabase : RoomDatabase() {
                     "expense_database"
                 )
                 .addMigrations(
-                    MIGRATION_7_8, 
-                    MIGRATION_8_9, 
-                    MIGRATION_9_10, 
-                    MIGRATION_10_11, 
-                    MIGRATION_11_12
+                    MIGRATION_12_13,
+                    MIGRATION_13_14
                 )
-                .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6)
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

@@ -21,5 +21,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AutoSplit"
+rootProject.name = "Cleave"
 include(":app")

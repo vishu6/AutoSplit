@@ -1,6 +1,8 @@
 package com.context.ui
 
 import com.context.data.Expense
+import com.context.utils.toTitleCase
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -20,10 +22,21 @@ data class TransactionDetails(
 
 fun Expense.toTransactionDetails(): TransactionDetails {
     val dateFormat = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+    
+    // Global Formatting: Title Case for merchants
+    val formattedMerchant = merchant.toTitleCase()
+    
+    // Global Formatting: Comma separators for amounts (Indian Numbering System)
+    val amountFormatter = NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 2
+    }
+    val formattedAmount = amountFormatter.format(amount)
+
     return TransactionDetails(
-        merchant = merchant,
+        merchant = formattedMerchant,
         dateTime = dateFormat.format(java.util.Date(timestamp)),
-        amount = String.format(Locale.getDefault(), "%,.2f", amount),
+        amount = formattedAmount,
         type = if (category == "Settlement") TransactionType.CREDIT else TransactionType.EXPENSE,
         category = category,
         source = if (isAuto) TransactionSource.AUTO_DETECTED else TransactionSource.MANUAL,

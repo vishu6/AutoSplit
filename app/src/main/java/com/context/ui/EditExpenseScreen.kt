@@ -64,7 +64,6 @@ fun EditExpenseScreen(
     // Date State
     var selectedTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
     var showDatePicker by remember { mutableStateOf(false) }
-    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedTimestamp)
 
     // Group Selector State
     val groups by viewModel.allGroups.collectAsState()
@@ -104,11 +103,16 @@ fun EditExpenseScreen(
     }
 
     if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedTimestamp)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
-                showDatePicker = false
+                TextButton(onClick = {
+                    selectedTimestamp = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -181,24 +185,24 @@ fun EditExpenseScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                OutlinedTextField(
-                    value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedTimestamp)),
-                    onValueChange = {},
-                    label = { Text("Date") },
-                    readOnly = true,
-                    leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDatePicker = true },
-                    enabled = false,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                        disabledBorderColor = MaterialTheme.colorScheme.outline,
-                        disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                Box(modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }) {
+                    OutlinedTextField(
+                        value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedTimestamp)),
+                        onValueChange = {},
+                        label = { Text("Date") },
+                        readOnly = true,
+                        enabled = false,
+                        leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
-                )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -207,7 +211,6 @@ fun EditExpenseScreen(
                     onExpandedChange = { isCategoryDropdownExpanded = it }
                 ) {
                     val currentCategoryObj = categories.find { it.name == selectedCategoryName }
-                    // FIXED: Use named arguments to avoid parameter shift error
                     val style = CategoryStyling.getStyle(
                         categoryName = selectedCategoryName,
                         customColorHex = currentCategoryObj?.colorHex,
@@ -230,7 +233,6 @@ fun EditExpenseScreen(
                         onDismissRequest = { isCategoryDropdownExpanded = false }
                     ) {
                         categories.forEach { category ->
-                            // FIXED: Use named arguments to avoid parameter shift error
                             val itemStyle = CategoryStyling.getStyle(
                                 categoryName = category.name,
                                 customColorHex = category.colorHex,
@@ -319,7 +321,6 @@ fun EditExpenseScreen(
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(24.dp))
-                        // NOTE: SplitPreviewCard is defined in AddExpenseScreen.kt and shared within this package
                         SplitPreviewCard(
                             members = selectedGroup?.getMemberList() ?: emptyList(),
                             totalAmount = amountDouble,

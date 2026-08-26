@@ -49,18 +49,61 @@ fun AppNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    var pendingJoin by remember { mutableStateOf<GroupSyncManager.JoinResult?>(null) }
+
     // Listen for global join events (via deep links or manual join)
     LaunchedEffect(Unit) {
-        groupSyncManager.joinEvents.collectLatest { (groupId, groupName) ->
-            if (groupId != 0) {
+        groupSyncManager.joinEvents.collectLatest { result ->
+            if (result.groupId != 0) {
                 // Navigate to the joined group
-                navController.navigate("group_detail/$groupId") {
+                navController.navigate("group_detail/${result.groupId}") {
                     launchSingleTop = true
                 }
                 // Show success feedback
-                toaster.show("Joined group: $groupName")
+                toaster.show("Joined group: ${result.groupName}")
+            } else if (result.remoteId != null) {
+                // Intercept for "Claim Profile" dialog if there is a candidate name
+                if (result.candidateName != null) {
+                    pendingJoin = result
+                } else {
+                    // No candidate to merge, just proceed with normal join
+                    groupSyncManager.confirmJoin(result, shouldMerge = false)
+                }
             }
         }
+    }
+
+    // Claim Profile Dialog
+    if (pendingJoin != null) {
+        val result = pendingJoin!!
+        AlertDialog(
+            onDismissRequest = { pendingJoin = null },
+            title = { Text("Claim your profile") },
+            text = {
+                Text("${result.inviterName ?: "A friend"} added someone named '${result.candidateName}' to this group. Is this you, or would you like to join as a new member?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        groupSyncManager.confirmJoin(result, shouldMerge = true)
+                        pendingJoin = null
+                    }
+                ) {
+                    Text("Yes, that's me")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        groupSyncManager.confirmJoin(result, shouldMerge = false)
+                        pendingJoin = null
+                    }
+                ) {
+                    Text("No, join as new")
+                }
+            },
+            shape = RoundedCornerShape(28.dp)
+        )
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -135,6 +178,9 @@ fun AppNavigation(
                                 onViewAllClick = {
                                     navController.navigate("transactions")
                                 },
+                                onViewAllRecurringClick = {
+                                    navController.navigate("recurring_list")
+                                },
                                 onUpdateClick = {
                                     UpdateUtils.pendingAppUpdateInfo?.let { updateInfo ->
                                         appUpdateManager.startUpdateFlowForResult(
@@ -154,15 +200,44 @@ fun AppNavigation(
                             )
                         }
 
-                        composable("transactions") {
-                            val parentEntry = remember(it) { navController.getBackStackEntry("main") }
+                        composable(
+                            route = "transactions?range={range}",
+                            arguments = listOf(
+                                navArgument("range") {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                }
+                            ),
+                            deepLinks = listOf(
+                                navDeepLink { uriPattern = "cleave://transactions?range={range}" }
+                            )
+                        ) { backStackEntry ->
+                            val range = backStackEntry.arguments?.getString("range")
+                            val parentEntry = remember(backStackEntry) { navController.getBackStackEntry("main") }
                             val homeViewModel: HomeViewModel = hiltViewModel(parentEntry)
+                            
+                            LaunchedEffect(range) {
+                                if (range == "week") {
+                                    homeViewModel.onTimeRangeSelected(TimeRange.WEEK)
+                                }
+                            }
+
                             AllTransactionsScreen(
                                 homeViewModel = homeViewModel,
                                 onBack = { navController.popBackStack() },
                                 onExpenseClick = { expenseId ->
                                     navController.navigate("edit_expense/$expenseId")
                                 }
+                            )
+                        }
+
+                        composable("recurring_list") {
+                            val parentEntry = remember(it) { navController.getBackStackEntry("main") }
+                            val homeViewModel: HomeViewModel = hiltViewModel(parentEntry)
+                            RecurringListScreen(
+                                homeViewModel = homeViewModel,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                     }

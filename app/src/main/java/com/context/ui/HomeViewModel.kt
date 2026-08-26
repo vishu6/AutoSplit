@@ -6,14 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.context.data.Category
 import com.context.data.Expense
 import com.context.data.ExpenseDao
+import com.context.data.RecurringExpense
+import com.context.data.RecurringExpenseDao
 import com.context.sync.GroupSyncManager
-import com.context.utils.BudgetUtils
-import com.context.utils.DateFilterUtils
-import com.context.utils.TimeRange
+import com.context.utils.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -22,6 +23,7 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val expenseDao: ExpenseDao,
+    private val recurringExpenseDao: RecurringExpenseDao,
     val groupSyncManager: GroupSyncManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -40,10 +42,20 @@ class HomeViewModel @Inject constructor(
             initialValue = emptyList()
         )
         
+    val activeRecurringExpenses = recurringExpenseDao.getAllTrackedRecurringExpenses()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     // Dynamic Category Map for icon resolution
     val categoryMap = expenseDao.getAllCategories()
         .map { list -> list.associateBy { it.name } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val allCategoriesList = expenseDao.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedTimeRange = MutableStateFlow(TimeRange.MONTH)
     val selectedTimeRange = _selectedTimeRange.asStateFlow()
@@ -51,13 +63,23 @@ class HomeViewModel @Inject constructor(
     private val _currentCalendar = MutableStateFlow(Calendar.getInstance())
     val currentCalendar = _currentCalendar.asStateFlow()
 
+    private val _customDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
+    val customDateRange = _customDateRange.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
     private val _isSearchActive = MutableStateFlow(false)
     val isSearchActive = _isSearchActive.asStateFlow()
 
-    // Category selection state
+    // Multiple category selection state
+    private val _selectedCategories = MutableStateFlow<Set<String>>(emptySet())
+    val selectedCategories = _selectedCategories.asStateFlow()
+
+    private val _selectedSortOrder = MutableStateFlow(SortOrder.NEWEST)
+    val selectedSortOrder = _selectedSortOrder.asStateFlow()
+
+    // Category selection state (for charts)
     private val _selectedCategory = MutableStateFlow<String?>(null)
     val selectedCategory = _selectedCategory.asStateFlow()
 
@@ -67,22 +89,57 @@ class HomeViewModel @Inject constructor(
 
     init {
         refreshBudgetLimits()
+        seedCategoriesIfEmpty()
+    }
+
+    private fun seedCategoriesIfEmpty() {
+        viewModelScope.launch {
+            val currentCategories = expenseDao.getAllCategories().first()
+            if (currentCategories.isEmpty()) {
+                val defaults = ExpenseCategory.entries.map { 
+                    Category(
+                        name = it.label,
+                        iconName = it.name,
+                        colorHex = "#2962FF", 
+                        isSystem = true
+                    )
+                }
+                defaults.forEach { expenseDao.insertCategory(it) }
+            }
+        }
     }
 
     fun refreshBudgetLimits() {
         _categoryLimits.value = BudgetUtils.getCategoryLimits(context)
     }
 
+    @Suppress("UNCHECKED_CAST")
     val filteredExpenses = combine(
         allExpenses, 
         selectedTimeRange, 
         currentCalendar, 
+        customDateRange,
         searchQuery, 
-        isSearchActive
-    ) { expenses, range, calendar, query, searchActive ->
-        val (start, end) = DateFilterUtils.getTimeRange(range, calendar)
+        isSearchActive,
+        selectedCategories,
+        selectedSortOrder
+    ) { args: Array<Any?> ->
+        val expenses = args[0] as List<Expense>
+        val range = args[1] as TimeRange
+        val calendar = args[2] as Calendar
+        val customRange = args[3] as Pair<Long, Long>?
+        val query = args[4] as String
+        val searchActive = args[5] as Boolean
+        val selectedCats = args[6] as Set<String>
+        val sortOrder = args[7] as SortOrder
         
-        expenses.filter { expense ->
+        val (start, end) = if (range == TimeRange.CUSTOM && customRange != null) {
+            customRange
+        } else {
+            DateFilterUtils.getTimeRange(range, calendar)
+        }
+        
+        val filtered = expenses.filter { expense ->
             val matchesTime = if (range == TimeRange.ALL || searchActive) true else expense.timestamp in start..end
             val matchesSearch = if (searchActive && query.isNotEmpty()) {
                 expense.merchant.contains(query, ignoreCase = true) || 
@@ -90,7 +147,16 @@ class HomeViewModel @Inject constructor(
                 expense.category.contains(query, ignoreCase = true)
             } else true
             
-            matchesTime && matchesSearch
+            val matchesCategory = selectedCats.isEmpty() || selectedCats.contains(expense.category)
+            
+            matchesTime && matchesSearch && matchesCategory
+        }
+
+        when (sortOrder) {
+            SortOrder.NEWEST -> filtered.sortedByDescending { it.timestamp }
+            SortOrder.OLDEST -> filtered.sortedBy { it.timestamp }
+            SortOrder.HIGHEST_AMOUNT -> filtered.sortedByDescending { it.amount }
+            SortOrder.LOWEST_AMOUNT -> filtered.sortedBy { it.amount }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -98,7 +164,6 @@ class HomeViewModel @Inject constructor(
         initialValue = emptyList()
     )
 
-    // ALWAYS accurately track the total spent this month for Proactive Budgeting
     val currentMonthTotalSpent = allExpenses.map { expenses ->
         val (start, end) = DateFilterUtils.getTimeRange(TimeRange.MONTH, Calendar.getInstance())
         expenses
@@ -120,35 +185,16 @@ class HomeViewModel @Inject constructor(
         initialValue = 0.0
     )
 
-    // Current month spend per category for budget tracking
-    val currentMonthCategorySpent = filteredExpenses.map { expenses ->
+    val currentMonthCategorySpent = allExpenses.map { expenses ->
+        val (start, end) = DateFilterUtils.getTimeRange(TimeRange.MONTH, Calendar.getInstance())
         expenses
-            .filter { it.category != "Settlement" }
+            .filter { it.timestamp in start..end && it.category != "Settlement" }
             .groupBy { it.category }
             .mapValues { it.value.sumOf { exp -> exp.amount } }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyMap()
-    )
-
-    val previousPeriodTotalSpent = combine(allExpenses, selectedTimeRange, currentCalendar) { expenses, range, calendar ->
-        val previousCalendar = calendar.clone() as Calendar
-        when (range) {
-            TimeRange.TODAY -> previousCalendar.add(Calendar.DAY_OF_YEAR, -1)
-            TimeRange.WEEK -> previousCalendar.add(Calendar.WEEK_OF_YEAR, -1)
-            TimeRange.MONTH -> previousCalendar.add(Calendar.MONTH, -1)
-            TimeRange.YEAR -> previousCalendar.add(Calendar.YEAR, -1)
-            TimeRange.ALL -> { /* No comparison for ALL */ }
-        }
-        val (start, end) = DateFilterUtils.getTimeRange(range, previousCalendar)
-        expenses
-            .filter { it.timestamp in start..end && it.category != "Settlement" }
-            .sumOf { it.amount }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = 0.0
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -177,14 +223,18 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun selectCategory(category: String?) {
-        _selectedCategory.value = category
-    }
-
     fun onTimeRangeSelected(range: TimeRange) {
         _selectedTimeRange.value = range
-        _currentCalendar.value = Calendar.getInstance()
+        if (range != TimeRange.CUSTOM) {
+            _currentCalendar.value = Calendar.getInstance()
+            _customDateRange.value = null
+        }
         _selectedCategory.value = null
+    }
+
+    fun onCustomDateRangeSelected(start: Long, end: Long) {
+        _selectedTimeRange.value = TimeRange.CUSTOM
+        _customDateRange.value = Pair(start, end)
     }
 
     fun onNextPeriod() {
@@ -194,7 +244,7 @@ class HomeViewModel @Inject constructor(
             TimeRange.WEEK -> newCal.add(Calendar.WEEK_OF_YEAR, 1)
             TimeRange.MONTH -> newCal.add(Calendar.MONTH, 1)
             TimeRange.YEAR -> newCal.add(Calendar.YEAR, 1)
-            TimeRange.ALL -> { }
+            else -> { }
         }
         _currentCalendar.value = newCal
     }
@@ -206,7 +256,7 @@ class HomeViewModel @Inject constructor(
             TimeRange.WEEK -> newCal.add(Calendar.WEEK_OF_YEAR, -1)
             TimeRange.MONTH -> newCal.add(Calendar.MONTH, -1)
             TimeRange.YEAR -> newCal.add(Calendar.YEAR, -1)
-            TimeRange.ALL -> { }
+            else -> { }
         }
         _currentCalendar.value = newCal
     }
@@ -222,10 +272,82 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Attempts to join a group using a manual URL paste.
-     */
+    fun toggleCategorySelection(category: String) {
+        val current = _selectedCategories.value.toMutableSet()
+        if (current.contains(category)) {
+            current.remove(category)
+        } else {
+            current.add(category)
+        }
+        _selectedCategories.value = current
+    }
+
+    fun clearCategoryFilters() {
+        _selectedCategories.value = emptySet()
+    }
+
+    fun onSortOrderSelected(order: SortOrder) {
+        _selectedSortOrder.value = order
+    }
+
+    fun resetAllFilters() {
+        _selectedTimeRange.value = TimeRange.MONTH
+        _currentCalendar.value = Calendar.getInstance()
+        _customDateRange.value = null
+        _selectedCategories.value = emptySet()
+        _selectedSortOrder.value = SortOrder.NEWEST
+        _searchQuery.value = ""
+        _isSearchActive.value = false
+    }
+
+    fun selectCategory(category: String?) {
+        _selectedCategory.value = category
+    }
+
     fun joinGroupManual(url: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
         groupSyncManager.joinByUrl(url, onComplete, onError)
+    }
+
+    fun markAsRecurring(expenseId: Int) {
+        viewModelScope.launch {
+            val expense = expenseDao.getExpenseById(expenseId) ?: return@launch
+            val recurring = RecurringExpense(
+                merchant = expense.merchant,
+                averageAmount = expense.amount,
+                frequencyDays = 30, // Default to monthly
+                lastPaidDate = expense.timestamp,
+                nextExpectedDate = expense.timestamp + (30L * 24 * 60 * 60 * 1000),
+                isAutoDetected = false,
+                confidenceScore = 1.0f,
+                category = expense.category
+            )
+            recurringExpenseDao.insert(recurring)
+        }
+    }
+
+    fun markPaidManually(id: Int) {
+        viewModelScope.launch {
+            val recurring = recurringExpenseDao.getAllRecurringExpensesSync().find { it.id == id } ?: return@launch
+            val now = System.currentTimeMillis()
+            val nextDate = now + (recurring.frequencyDays.toLong() * 24 * 60 * 60 * 1000)
+            recurringExpenseDao.update(recurring.copy(
+                lastPaidDate = now,
+                nextExpectedDate = nextDate,
+                isActive = true
+            ))
+        }
+    }
+
+    fun acceptSuggestion(id: Int) {
+        viewModelScope.launch {
+            val recurring = recurringExpenseDao.getAllRecurringExpensesSync().find { it.id == id } ?: return@launch
+            recurringExpenseDao.update(recurring.copy(isActive = true))
+        }
+    }
+
+    fun suppressRecurring(id: Int) {
+        viewModelScope.launch {
+            recurringExpenseDao.suppressRecurringExpense(id)
+        }
     }
 }

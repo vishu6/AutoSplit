@@ -3,6 +3,7 @@ package com.context.di
 import android.content.Context
 import com.context.data.ExpenseDao
 import com.context.data.ExpenseDatabase
+import com.context.data.RecurringExpenseDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,5 +25,11 @@ object DatabaseModule {
     @Singleton
     fun provideExpenseDao(database: ExpenseDatabase): ExpenseDao {
         return database.expenseDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideRecurringExpenseDao(database: ExpenseDatabase): RecurringExpenseDao {
+        return database.recurringExpenseDao()
     }
 }

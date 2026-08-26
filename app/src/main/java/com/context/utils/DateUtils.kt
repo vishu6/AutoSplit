@@ -53,6 +53,55 @@ object DateUtils {
         return today.get(Calendar.YEAR) == calendar.get(Calendar.YEAR)
     }
 
+    fun getPreciseLabel(range: TimeRange, calendar: Calendar): String {
+        return when (range) {
+            TimeRange.TODAY -> {
+                when {
+                    isToday(calendar) -> "Total Spent Today"
+                    isYesterday(calendar) -> "Total Spent Yesterday"
+                    else -> {
+                        val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+                        "Total Spent on ${sdf.format(calendar.time)}"
+                    }
+                }
+            }
+            TimeRange.WEEK -> {
+                if (isThisWeek(calendar)) {
+                    "Total Spent This Week"
+                } else {
+                    val start = calendar.clone() as Calendar
+                    start.set(Calendar.DAY_OF_WEEK, start.firstDayOfWeek)
+                    val end = start.clone() as Calendar
+                    end.add(Calendar.DAY_OF_WEEK, 6)
+                    
+                    val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+                    "Total for ${sdf.format(start.time)} - ${sdf.format(end.time)}"
+                }
+            }
+            TimeRange.MONTH -> {
+                if (isThisMonth(calendar)) {
+                    "Total Spent This Month"
+                } else {
+                    val sdf = if (isThisYear(calendar)) {
+                        SimpleDateFormat("MMMM", Locale.getDefault())
+                    } else {
+                        SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+                    }
+                    "Total Spent in ${sdf.format(calendar.time)}"
+                }
+            }
+            TimeRange.YEAR -> {
+                if (isThisYear(calendar)) {
+                    "Total Spent This Year"
+                } else {
+                    "Total Spent in ${calendar.get(Calendar.YEAR)}"
+                }
+            }
+            TimeRange.ALL -> "Total Spent All Time"
+            TimeRange.CUSTOM -> "Total for Period"
+        }
+    }
+
     fun getDayOfMonthSuffix(day: Int): String {
         return when {
             day in 11..13 -> "th"

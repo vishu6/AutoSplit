@@ -19,8 +19,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
@@ -41,12 +43,17 @@ class GroupSyncManager @Inject constructor(
     val joinEvents = _joinEvents.receiveAsFlow()
 
     private val invitationHints = mutableMapOf<String, String>()
+    private val pendingPushes = mutableSetOf<Int>()
 
     @Keep
     data class JoinResult(
         val groupId: Int = 0,
         val groupName: String = "",
-        val isNewJoin: Boolean = false
+        val isNewJoin: Boolean = false,
+        val candidateName: String? = null,
+        val remoteId: String? = null,
+        val syncKey: String? = null,
+        val inviterName: String? = null
     )
 
     @Keep
@@ -62,9 +69,10 @@ class GroupSyncManager @Inject constructor(
     data class IdentityPayload(
         val name: String = "",
         val upiId: String? = null,
-        val invitedAs: String? = null
+        val invitedAs: String? = null,
+        val isActive: Boolean = true
     ) {
-        constructor() : this("", null, null)
+        constructor() : this("", null, null, true)
     }
 
     fun joinByUrl(url: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
@@ -78,14 +86,47 @@ class GroupSyncManager @Inject constructor(
                 val invitedAs = uri.getQueryParameter("invitee")
 
                 if (remoteId != null && syncKey != null && name != null) {
-                    if (invitedAs != null) {
-                        invitationHints[remoteId] = invitedAs
+                    val existing = expenseDao.getGroupByRemoteId(remoteId)
+                    val myName = OnboardingUtils.getUserName(context)
+
+                    if (existing != null && existing.getMemberList().any { it.equals(myName, ignoreCase = true) }) {
+                        _joinEvents.send(JoinResult(existing.groupId, name, false))
+                        withContext(Dispatchers.Main) { onComplete(name) }
+                        return@launch
                     }
-                    
-                    joinGroup(remoteId, syncKey, name, inviterName) {
-                        scope.launch(Dispatchers.Main) {
-                            onComplete(name)
+
+                    var finalCandidate = invitedAs
+                    try {
+                        val groupSnapshot = database.child("groups").child(remoteId).child("metadata").get().await()
+                        val encryptedMeta = groupSnapshot.getValue(String::class.java)
+                        if (encryptedMeta != null) {
+                            val decryptedJson = GroupCryptoUtils.decrypt(encryptedMeta, syncKey)
+                            val remoteMembers = decryptedJson.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                            
+                            if (finalCandidate == null) {
+                                finalCandidate = remoteMembers.find { 
+                                    it.lowercase() != "you" && 
+                                    it.lowercase() != inviterName?.lowercase() &&
+                                    it.lowercase() != myName.lowercase()
+                                }
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e("Sync", "Metadata fetch failed: ${e.message}")
+                    }
+
+                    _joinEvents.send(JoinResult(
+                        groupId = existing?.groupId ?: 0,
+                        groupName = name,
+                        isNewJoin = existing == null,
+                        candidateName = finalCandidate,
+                        remoteId = remoteId,
+                        syncKey = syncKey,
+                        inviterName = inviterName
+                    ))
+                    
+                    withContext(Dispatchers.Main) {
+                        onComplete(name)
                     }
                 } else {
                     withContext(Dispatchers.Main) {
@@ -100,17 +141,41 @@ class GroupSyncManager @Inject constructor(
         }
     }
 
-    fun joinGroup(remoteId: String, syncKey: String, name: String, inviterName: String? = null, onComplete: (() -> Unit)? = null) {
+    fun confirmJoin(result: JoinResult, shouldMerge: Boolean) {
         scope.launch {
+            val remoteId = result.remoteId ?: return@launch
+            val syncKey = result.syncKey ?: return@launch
+            val groupName = result.groupName
+            val inviterName = result.inviterName
+            val candidateName = result.candidateName
+
             val existing = expenseDao.getGroupByRemoteId(remoteId)
             val isNewJoin = existing == null
             val myName = OnboardingUtils.getUserName(context)
             
+            var remoteMemberList: List<String>? = null
+            try {
+                val groupSnapshot = database.child("groups").child(remoteId).child("metadata").get().await()
+                val encryptedMeta = groupSnapshot.getValue(String::class.java)
+                if (encryptedMeta != null) {
+                    remoteMemberList = GroupCryptoUtils.decrypt(encryptedMeta, syncKey).split(",").map { it.trim() }.filter { it.isNotBlank() }
+                }
+            } catch (e: Exception) {}
+
             val groupId = if (isNewJoin) {
-                val otherMember = inviterName ?: "Friend"
+                val membersSet = mutableSetOf<String>()
+                membersSet.add(myName)
+                if (inviterName != null) membersSet.add(inviterName)
+                remoteMemberList?.forEach { membersSet.add(it) }
+
+                if (shouldMerge && candidateName != null) {
+                    membersSet.removeIf { it.equals(candidateName, ignoreCase = true) }
+                    invitationHints[remoteId] = candidateName
+                }
+
                 val newGroup = Group(
-                    name = name,
-                    members = "$myName,$otherMember", 
+                    name = groupName,
+                    members = membersSet.joinToString(","),
                     remoteId = remoteId,
                     syncKey = syncKey,
                     isSyncEnabled = true
@@ -125,17 +190,50 @@ class GroupSyncManager @Inject constructor(
                 ))
 
                 val groupFromDb = expenseDao.getGroup(id)
-                groupFromDb?.let { startSync(it) }
+                groupFromDb?.let { 
+                    pushGroupMetadata(it)
+                    startSync(it) 
+                }
                 id
             } else {
                 val id = existing!!.groupId
+                
+                if (shouldMerge && candidateName != null) {
+                    expenseDao.renameMemberInGroup(id, candidateName, myName)
+                    val members = existing.getMemberList().toMutableList()
+                    members.removeIf { it.equals(candidateName, ignoreCase = true) }
+                    if (!members.any { it.equals(myName, ignoreCase = true) }) members.add(myName)
+                    
+                    val updatedGroup = existing.copy(members = members.joinToString(","))
+                    expenseDao.updateGroup(updatedGroup)
+                    pushGroupMetadata(updatedGroup)
+                    invitationHints[remoteId] = candidateName
+                } else {
+                    val members = existing.getMemberList().toMutableList()
+                    if (!members.any { it.equals(myName, ignoreCase = true) }) {
+                        members.add(myName)
+                        val updatedGroup = existing.copy(members = members.joinToString(","))
+                        expenseDao.updateGroup(updatedGroup)
+                        pushGroupMetadata(updatedGroup)
+                    }
+                }
+                
                 expenseDao.getGroup(id)?.let { startSync(it) }
                 id
             }
             
-            _joinEvents.send(JoinResult(groupId, name, isNewJoin))
-            withContext(Dispatchers.Main) {
-                onComplete?.invoke()
+            _joinEvents.send(JoinResult(groupId, groupName, isNewJoin))
+        }
+    }
+
+    fun pushGroupMetadata(group: Group) {
+        if (!group.isSyncEnabled || group.syncKey == null) return
+        scope.launch {
+            try {
+                val encrypted = GroupCryptoUtils.encrypt(group.members, group.syncKey)
+                database.child("groups").child(group.remoteId).child("metadata").setValue(encrypted)
+            } catch (e: Exception) {
+                Log.e("Sync", "Push Group Metadata failed: ${e.message}")
             }
         }
     }
@@ -147,10 +245,14 @@ class GroupSyncManager @Inject constructor(
             val userName = OnboardingUtils.getUserName(context)
             val invitedAsHint = invitationHints[group.remoteId]
             
+            val localMembers = expenseDao.getMembersForGroup(group.groupId).first()
+            val myStatus = localMembers.find { it.name.equals(userName, ignoreCase = true) }?.isActive ?: true
+            
             val identity = IdentityPayload(
                 name = userName,
                 upiId = OnboardingUtils.getUpiId(context),
-                invitedAs = invitedAsHint
+                invitedAs = invitedAsHint,
+                isActive = myStatus
             )
             
             val json = gson.toJson(identity)
@@ -173,6 +275,7 @@ class GroupSyncManager @Inject constructor(
         if (!group.isSyncEnabled || group.syncKey == null) return
         
         broadcastIdentity(group)
+        pushGroupMetadata(group)
 
         scope.launch {
             val unsynced = expenseDao.getUnsyncedExpenses(group.groupId)
@@ -196,6 +299,47 @@ class GroupSyncManager @Inject constructor(
             activeListeners[group.remoteId] = expenseListener
         }
 
+        database.child("groups").child(group.remoteId).child("metadata")
+            .addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val encrypted = snapshot.getValue(String::class.java) ?: return
+                    scope.launch {
+                        try {
+                            val remoteMembersCsv = GroupCryptoUtils.decrypt(encrypted, group.syncKey!!)
+                            val localGroup = expenseDao.getGroup(group.groupId) ?: return@launch
+                            
+                            val localList = localGroup.getMemberList()
+                            val remoteList = remoteMembersCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                            
+                            // Get all current identities to find "Reconciled/Legacy" names
+                            val syncedMembers = expenseDao.getMembersForGroup(group.groupId).first()
+                            val activeRealNames = syncedMembers.map { it.name.lowercase() }
+
+                            val mergedSet = localList.toMutableSet()
+                            var changed = false
+                            
+                            remoteList.forEach { remoteName ->
+                                val normalizedRemote = remoteName.lowercase()
+                                // Skip if name was explicitly reconciled (invitation hint) 
+                                // OR if we already have a real identity for this person and this is a ghost name
+                                val isReconciled = invitationHints[group.remoteId]?.lowercase() == normalizedRemote
+                                
+                                if (!isReconciled && !mergedSet.any { it.lowercase() == normalizedRemote }) {
+                                    mergedSet.add(remoteName)
+                                    changed = true
+                                }
+                            }
+                            
+                            if (changed) {
+                                val updated = localGroup.copy(members = mergedSet.joinToString(","))
+                                expenseDao.updateGroup(updated)
+                            }
+                        } catch (e: Exception) {}
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+
         if (!identityListeners.containsKey(group.remoteId)) {
             val idListener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
@@ -215,46 +359,64 @@ class GroupSyncManager @Inject constructor(
     }
 
     fun pushExpense(expense: Expense) {
-        if (expense.groupId == null) return
+        if (expense.groupId == null || expense.isSynced) return
         
+        synchronized(pendingPushes) {
+            if (pendingPushes.contains(expense.id)) return
+            pendingPushes.add(expense.id)
+        }
+
         scope.launch {
-            val group = expenseDao.getGroup(expense.groupId)
-            if (group?.isSyncEnabled == true && group.syncKey != null) {
-                val myName = OnboardingUtils.getUserName(context)
-                
-                val displayPayer = if (expense.paidBy == "You") myName else expense.paidBy
-                val displayMerchant = if (expense.category == "Settlement") {
-                    expense.merchant.replace("You", myName)
-                } else {
-                    expense.merchant
-                }
+            try {
+                val group = expenseDao.getGroup(expense.groupId)
+                if (group?.isSyncEnabled == true && group.syncKey != null) {
+                    val myName = OnboardingUtils.getUserName(context)
+                    
+                    val remoteId = if (expense.remoteId.isBlank() || expense.remoteId.contains("-")) UUID.randomUUID().toString() else expense.remoteId
+                    val lockedExpense = expense.copy(isSynced = true, remoteId = remoteId)
+                    expenseDao.update(lockedExpense)
 
-                val dataMap = mapOf(
-                    "merchant" to displayMerchant,
-                    "amount" to expense.amount.toString(),
-                    "timestamp" to expense.timestamp.toString(),
-                    "category" to expense.category,
-                    "paidBy" to displayPayer
-                )
-                
-                val json = gson.toJson(dataMap)
-                val encrypted = GroupCryptoUtils.encrypt(json, group.syncKey)
-                
-                val remoteId = if (expense.remoteId.isBlank()) UUID.randomUUID().toString() else expense.remoteId
-                val payload = EncryptedPayload(
-                    remoteId = remoteId,
-                    encryptedData = encrypted,
-                    sender = myName
-                )
-
-                database.child("groups").child(group.remoteId).child("expenses")
-                    .child(payload.remoteId)
-                    .setValue(payload)
-                    .addOnSuccessListener {
-                        scope.launch {
-                            expenseDao.update(expense.copy(isSynced = true, remoteId = payload.remoteId))
-                        }
+                    val displayPayer = if (lockedExpense.paidBy == "You") myName else lockedExpense.paidBy
+                    val displayMerchant = if (lockedExpense.category == "Settlement") {
+                        lockedExpense.merchant.replace("You", myName)
+                    } else {
+                        lockedExpense.merchant
                     }
+
+                    val dataMap = mapOf(
+                        "merchant" to displayMerchant,
+                        "amount" to lockedExpense.amount.toString(),
+                        "timestamp" to lockedExpense.timestamp.toString(),
+                        "category" to lockedExpense.category,
+                        "paidBy" to displayPayer
+                    )
+                    
+                    val json = gson.toJson(dataMap)
+                    val encrypted = GroupCryptoUtils.encrypt(json, group.syncKey)
+                    
+                    val payload = EncryptedPayload(
+                        remoteId = remoteId,
+                        encryptedData = encrypted,
+                        sender = myName
+                    )
+
+                    database.child("groups").child(group.remoteId).child("expenses")
+                        .child(payload.remoteId)
+                        .setValue(payload)
+                        .addOnSuccessListener {
+                            synchronized(pendingPushes) { pendingPushes.remove(expense.id) }
+                        }
+                        .addOnFailureListener {
+                            scope.launch {
+                                expenseDao.update(expense.copy(isSynced = false))
+                                synchronized(pendingPushes) { pendingPushes.remove(expense.id) }
+                            }
+                        }
+                } else {
+                    synchronized(pendingPushes) { pendingPushes.remove(expense.id) }
+                }
+            } catch (e: Exception) {
+                synchronized(pendingPushes) { pendingPushes.remove(expense.id) }
             }
         }
     }
@@ -323,21 +485,26 @@ class GroupSyncManager @Inject constructor(
             if (identity.name.isNotBlank() && !identity.name.equals(myName, ignoreCase = true)) {
                 val nameToReconcile = identity.invitedAs
                 if (nameToReconcile != null && !nameToReconcile.equals(identity.name, ignoreCase = true)) {
+                    // GLOBAL RECONCILIATION: When we see someone has claimed a name, 
+                    // remove that name from our group member list to maintain parity.
                     expenseDao.renameMemberInGroup(group.groupId, nameToReconcile, identity.name)
                     val members = group.getMemberList().toMutableList()
-                    members.remove(nameToReconcile)
-                    if (!members.contains(identity.name)) {
+                    members.removeIf { it.equals(nameToReconcile, ignoreCase = true) }
+                    if (!members.any { it.equals(identity.name, ignoreCase = true) }) {
                         members.add(identity.name)
                     }
                     val updatedGroup = group.copy(members = members.joinToString(","))
                     expenseDao.updateGroup(updatedGroup)
+                    pushGroupMetadata(updatedGroup) // authoritative update
+                    invitationHints[group.remoteId] = nameToReconcile // track legacy name
                 }
                 
                 val member = GroupMember(
                     groupId = group.groupId,
                     name = identity.name,
                     upiId = identity.upiId,
-                    lastSynced = System.currentTimeMillis()
+                    lastSynced = System.currentTimeMillis(),
+                    isActive = identity.isActive
                 )
                 expenseDao.insertMember(member)
 
@@ -348,10 +515,11 @@ class GroupSyncManager @Inject constructor(
                     currentMembers.add(identity.name)
                     val updatedGroup = group.copy(members = currentMembers.joinToString(","))
                     expenseDao.updateGroup(updatedGroup)
+                    pushGroupMetadata(updatedGroup)
                 }
             }
         } catch (e: Exception) {
-            Log.e("Sync", "Identity Decryption Failed: ${e.message}")
+            Log.e("Sync", "Identity Failed: ${e.message}")
         }
     }
 

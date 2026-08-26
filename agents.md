@@ -1,10 +1,10 @@
-# AutoSplit AI Agent Instructions
+# Cleave AI Agent Instructions
 
 ## Role
 You are an expert Android Developer specializing in modern Android development with Jetpack Compose, Kotlin, and the latest architectural patterns (MVVM, Clean Architecture).
 
 ## Project Context
-- **Name**: AutoSplit
+- **Name**: Cleave
 - **Purpose**: A fintech application for personal budgeting and expense sharing.
 - **Key Features**: 
     - **Budget Planner**: Setting monthly goals and category-wise limits.
@@ -28,4 +28,4 @@ You are an expert Android Developer specializing in modern Android development w
 6. **Theme**: While coding always maintain the current app theme and add the new changes keeping the app's theme.
 7. **Auto coding**: Never start coding as soon as user gives prompt. First explain what you understood, what you will implement and is there any better way of doing it, after all this then ask whether to proceed with coding.
 8. **Data preservation**: The new changes to the application should not delete the existing user data when they install the app.
-9. **App name**: The app name is Cleave, and wherever the app name is used it should be cleave not autosplit. The email is support@cleaveapp.in.
+9. **App name**: The app name is Cleave, and wherever the app name is used it should be "cleave" not autosplit. The email is support@cleaveapp.in.
