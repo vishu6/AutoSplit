@@ -477,7 +477,12 @@ fun HomeTopBar(
             Column {
                 Text(text = "$greeting,", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
                 // Global Formatting: Title Case for User Name
-                Text(text = name.toTitleCase(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                Text(
+                    text = name.toTitleCase(), 
+                    style = MaterialTheme.typography.headlineLarge, 
+                    fontWeight = FontWeight.ExtraBold, 
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPrivacyToggle) {
@@ -489,7 +494,12 @@ fun HomeTopBar(
                     )
                 }
                 IconButton(onClick = onSearchClick) {
-                    Icon(Icons.Default.Search, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                    Icon(
+                        Icons.Default.Search, 
+                        null, 
+                        tint = MaterialTheme.colorScheme.onBackground, 
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
                 Spacer(Modifier.width(4.dp))
                 Box(
@@ -936,7 +946,7 @@ fun CategoryBudgetProgressHero(
                         text = "$safeText/day",
                         style = MaterialTheme.typography.displayMedium.copy(fontSize = 44.sp),
                         fontWeight = FontWeight.Black,
-                        color = if (safeToday <= 0 || isOverspending) Color.Red else Color.Black
+                        color = if (safeToday <= 0 || isOverspending) Color.Red else MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Safe to spend",
@@ -956,7 +966,7 @@ fun CategoryBudgetProgressHero(
                         }, 
                         style = MaterialTheme.typography.titleLarge, 
                         fontWeight = FontWeight.Black,
-                        color = if (remaining <= 0 || isOverspending) Color.Red else Color.Black
+                        color = if (remaining <= 0 || isOverspending) Color.Red else MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = if (runOutDate != null && actualProgress < 1.0f) "runs out on" else "remaining",

@@ -68,8 +68,6 @@ fun RecurringSection(
         }.sortedBy { it.nextExpectedDate }
     }
 
-    if (filteredForDashboard.isEmpty()) return
-
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Spacer(modifier = Modifier.height(32.dp))
         Row(
@@ -92,42 +90,93 @@ fun RecurringSection(
         }
         Spacer(modifier = Modifier.height(16.dp))
         
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.2f))
-        ) {
-            Column {
-                filteredForDashboard.take(4).forEachIndexed { index, recurring ->
-                    val matchedExpense = thisMonthExpenses.find { expense ->
-                        RecurringExpenseDetector.isSameMerchant(expense.merchant, recurring.merchant) &&
-                        abs(expense.amount - recurring.averageAmount) / recurring.averageAmount < 0.2
-                    }
-                    val isPaid = matchedExpense != null
+        if (filteredForDashboard.isEmpty()) {
+            SettledRecurringCard()
+        } else {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.2f))
+            ) {
+                Column {
+                    filteredForDashboard.take(4).forEachIndexed { index, recurring ->
+                        val matchedExpense = thisMonthExpenses.find { expense ->
+                            RecurringExpenseDetector.isSameMerchant(expense.merchant, recurring.merchant) &&
+                            abs(expense.amount - recurring.averageAmount) / recurring.averageAmount < 0.2
+                        }
+                        val isPaid = matchedExpense != null
 
-                    if (recurring.isActive) {
-                        CompactRecurringRow(
-                            recurring = recurring,
-                            isPaid = isPaid,
-                            isPrivacyMode = isPrivacyMode
-                        )
-                    } else if (!recurring.isSuppressed) {
-                        RecurringSuggestionRow(
-                            recurring = recurring,
-                            onAccept = { onMarkAsPaid(recurring.id) },
-                            onDismiss = { onDismissSuggestion(recurring.id) }
-                        )
-                    }
+                        if (recurring.isActive) {
+                            CompactRecurringRow(
+                                recurring = recurring,
+                                isPaid = isPaid,
+                                isPrivacyMode = isPrivacyMode
+                            )
+                        } else if (!recurring.isSuppressed) {
+                            RecurringSuggestionRow(
+                                recurring = recurring,
+                                onAccept = { onMarkAsPaid(recurring.id) },
+                                onDismiss = { onDismissSuggestion(recurring.id) }
+                            )
+                        }
 
-                    if (index < filteredForDashboard.size - 1 && index < 3) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            thickness = 0.5.dp,
-                            color = Color.LightGray.copy(alpha = 0.3f)
-                        )
+                        if (index < filteredForDashboard.size - 1 && index < 3) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                thickness = 0.5.dp,
+                                color = Color.LightGray.copy(alpha = 0.3f)
+                            )
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettledRecurringCard() {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9).copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.1f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF2E7D32).copy(alpha = 0.1f),
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        null,
+                        tint = Color(0xFF2E7D32),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    "All caught up!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1B5E20)
+                )
+                Text(
+                    "Your recurring payments for this month are settled.",
+                    fontSize = 11.sp,
+                    color = Color(0xFF2E7D32).copy(alpha = 0.7f)
+                )
             }
         }
     }

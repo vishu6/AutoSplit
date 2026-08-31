@@ -269,7 +269,7 @@ fun SettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(text = "Made with ❤️ in India", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
-                Text(text = "Version 1.5.5", style = MaterialTheme.typography.labelSmall, color = Color.Gray.copy(alpha = 0.7f))
+                Text(text = "Version 1.5.6", style = MaterialTheme.typography.labelSmall, color = Color.Gray.copy(alpha = 0.7f))
             }
         }
     }
@@ -427,7 +427,7 @@ fun FeedbackBottomSheet(onDismiss: () -> Unit, onSubmitted: () -> Unit) {
                         $comments
                         
                         --- Technical Details ---
-                        App Version: 1.5.5
+                        App Version: 1.5.6
                         Device: ${Build.MODEL}
                         Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})
                     """.trimIndent()

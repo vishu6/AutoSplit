@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,10 +25,9 @@ import com.context.data.RecurringExpense
 import com.context.ui.theme.CategoryStyling
 import com.context.ui.theme.ElectricBlue
 import com.context.ui.theme.LightBlue
-import com.context.utils.CurrencyMasker
-import com.context.utils.DateUtils
-import com.context.utils.toTitleCase
-import java.util.Locale
+import com.context.utils.*
+import java.util.*
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,10 +36,25 @@ fun RecurringListScreen(
     onBack: () -> Unit
 ) {
     val recurringExpenses by homeViewModel.activeRecurringExpenses.collectAsState()
+    val allExpenses by homeViewModel.allExpenses.collectAsState()
     val totalMonthlyCommitment = recurringExpenses.sumOf { it.averageAmount }
     
     val context = androidx.compose.ui.platform.LocalContext.current
     val privacyMode by remember { com.context.utils.SecurityUtils.getPrivacyModeFlow(context) }.collectAsState(initial = com.context.utils.SecurityUtils.isPrivacyModeEnabled(context))
+
+    val currentMonthRange = remember { DateFilterUtils.getTimeRange(TimeRange.MONTH, Calendar.getInstance()) }
+    val thisMonthExpenses = remember(allExpenses, currentMonthRange) {
+        allExpenses.filter { it.timestamp in currentMonthRange.first..currentMonthRange.second }
+    }
+
+    val handledCount = remember(recurringExpenses, thisMonthExpenses) {
+        recurringExpenses.count { recurring ->
+            thisMonthExpenses.any { expense ->
+                RecurringExpenseDetector.isSameMerchant(expense.merchant, recurring.merchant) &&
+                abs(expense.amount - recurring.averageAmount) / recurring.averageAmount < 0.2
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -85,19 +100,30 @@ fun RecurringListScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            // Global Formatting: Use CurrencyMasker for commitment total
                             val totalText = CurrencyMasker.formatAmount(totalMonthlyCommitment, privacyMode)
                             Text(totalText, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
                             
                             Spacer(modifier = Modifier.height(16.dp))
-                            Surface(
-                                color = Color.White.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = "${recurringExpenses.size} active subscriptions",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(8.dp))
+                                
                                 Text(
-                                    text = "${recurringExpenses.size} active subscriptions",
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    color = Color.White,
+                                    text = "$handledCount of ${recurringExpenses.size} paid",
+                                    color = Color.White.copy(alpha = 0.9f),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -123,9 +149,25 @@ fun RecurringListScreen(
                     }
                 }
             } else {
-                items(recurringExpenses.sortedBy { it.nextExpectedDate }) { recurring ->
+                val sortedList = recurringExpenses.sortedWith(
+                    compareBy<RecurringExpense> { recurring ->
+                        val isPaid = thisMonthExpenses.any { expense ->
+                            RecurringExpenseDetector.isSameMerchant(expense.merchant, recurring.merchant) &&
+                            abs(expense.amount - recurring.averageAmount) / recurring.averageAmount < 0.2
+                        }
+                        isPaid // Paid items go to bottom
+                    }.thenBy { it.nextExpectedDate }
+                )
+
+                items(sortedList) { recurring ->
+                    val isPaid = thisMonthExpenses.any { expense ->
+                        RecurringExpenseDetector.isSameMerchant(expense.merchant, recurring.merchant) &&
+                        abs(expense.amount - recurring.averageAmount) / recurring.averageAmount < 0.2
+                    }
+                    
                     RecurringManagementRow(
                         recurring = recurring,
+                        isPaid = isPaid,
                         isPrivacyMode = privacyMode,
                         onDelete = { homeViewModel.suppressRecurring(recurring.id) }
                     )
@@ -139,6 +181,7 @@ fun RecurringListScreen(
 @Composable
 fun RecurringManagementRow(
     recurring: RecurringExpense,
+    isPaid: Boolean,
     isPrivacyMode: Boolean,
     onDelete: () -> Unit
 ) {
@@ -147,8 +190,11 @@ fun RecurringManagementRow(
 
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isPaid) Color(0xFFF1F8E9) else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isPaid) 0.dp else 2.dp),
+        border = if (isPaid) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.1f)) else null
     ) {
         Row(
             modifier = Modifier
@@ -158,27 +204,32 @@ fun RecurringManagementRow(
         ) {
             Surface(
                 shape = CircleShape,
-                color = style.color.copy(alpha = 0.1f),
+                color = if (isPaid) Color(0xFF2E7D32).copy(alpha = 0.1f) else style.color.copy(alpha = 0.1f),
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(style.icon, null, tint = style.boldColor, modifier = Modifier.size(24.dp))
+                    Icon(
+                        if (isPaid) Icons.Default.CheckCircle else style.icon, 
+                        null, 
+                        tint = if (isPaid) Color(0xFF2E7D32) else style.boldColor, 
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                // Global Formatting: Title Case for merchant name
                 Text(
                     recurring.merchant.toTitleCase(),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = if (isPaid) Color(0xFF1B5E20) else Color.Unspecified
                 )
                 Text(
-                    "Next: $nextDate",
+                    if (isPaid) "Paid for this month" else "Next: $nextDate",
                     fontSize = 12.sp,
-                    color = Color.Gray
+                    color = if (isPaid) Color(0xFF2E7D32).copy(alpha = 0.7f) else Color.Gray
                 )
             }
 
@@ -188,10 +239,12 @@ fun RecurringManagementRow(
                     amountText,
                     fontWeight = FontWeight.Black,
                     fontSize = 16.sp,
-                    color = Color.Black
+                    color = if (isPaid) Color(0xFF1B5E20) else Color.Black
                 )
-                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Delete, null, tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                if (!isPaid) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Delete, null, tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
