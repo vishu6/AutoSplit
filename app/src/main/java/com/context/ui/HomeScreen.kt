@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -86,6 +88,11 @@ fun HomeScreen(
     val categoryMap by homeViewModel.categoryMap.collectAsState()
     val activeRecurringExpenses by homeViewModel.activeRecurringExpenses.collectAsState()
 
+    // Dynamic Monthly Budget States
+    val monthlyBudgetValue by homeViewModel.monthlyBudgetValue.collectAsState()
+    val isBudgetCustom by homeViewModel.isBudgetCustom.collectAsState()
+    val showCopyPrompt by homeViewModel.showCopyPrompt.collectAsState()
+
     val context = LocalContext.current
     val privacyMode by remember { SecurityUtils.getPrivacyModeFlow(context) }.collectAsState(initial = SecurityUtils.isPrivacyModeEnabled(context))
 
@@ -105,12 +112,13 @@ fun HomeScreen(
 
     var savedName by remember { mutableStateOf(OnboardingUtils.getUserName(context)) }
     var currentGreeting by remember { mutableStateOf(DateUtils.getGreeting()) }
-    var isBudgetSet by remember { mutableStateOf(BudgetUtils.isBudgetSet(context)) }
-    var monthlyBudgetValue by remember { mutableDoubleStateOf(BudgetUtils.getMonthlyBudget(context)) }
 
     var fabExpanded by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showCategoryDetail by remember { mutableStateOf(false) }
+    
+    // FUTURE FEATURE: Ask Cleave AI
+    // var showAskCleaveSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedCategory) {
         if (selectedCategory != null) {
@@ -127,15 +135,13 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 // SAFETY RESET: Home screen doesn't support custom range picker, 
                 // so reset to Month if user returns from AllTransactions with a custom filter.
-                if (homeViewModel.selectedTimeRange.value == TimeRange.CUSTOM) {
+                if (homeViewModel.selectedTimeRange.value == TimeRange.MONTH) {
                     homeViewModel.onTimeRangeSelected(TimeRange.MONTH)
                 }
 
                 savedName = OnboardingUtils.getUserName(context)
                 currentGreeting = DateUtils.getGreeting()
-                isBudgetSet = BudgetUtils.isBudgetSet(context)
-                monthlyBudgetValue = BudgetUtils.getMonthlyBudget(context)
-                homeViewModel.refreshBudgetLimits()
+                homeViewModel.refreshBudgetState()
                 
                 val notificationEnabled = PermissionUtils.isNotificationServiceEnabled(context)
                 if (!notificationEnabled && !PermissionUtils.isPermanentDismissed(context)) {
@@ -185,6 +191,7 @@ fun HomeScreen(
                             onProfileClick = onProfileClick,
                             isSearchActive = isSearchActive,
                             onSearchClick = { HapticUtils.playTick(context); homeViewModel.setSearchActive(true) },
+                            onAskCleaveClick = { /* FUTURE FEATURE: showAskCleaveSheet = true */ },
                             searchQuery = searchQuery,
                             onSearchQueryChange = { homeViewModel.onSearchQueryChanged(it) },
                             onClearSearch = { homeViewModel.setSearchActive(false) },
@@ -204,7 +211,7 @@ fun HomeScreen(
                                     monthlyTotalSpent = monthlyTotalSpent,
                                     selectedRange = selectedRange,
                                     calendar = currentCalendar,
-                                    monthlyBudget = if (isBudgetSet) monthlyBudgetValue else null,
+                                    monthlyBudget = if (monthlyBudgetValue > 0) monthlyBudgetValue else null,
                                     isPrivacyMode = privacyMode
                                 )
 
@@ -228,7 +235,7 @@ fun HomeScreen(
                                     isPrivacyMode = privacyMode
                                 )
                                 
-                                if (!isBudgetSet && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(currentCalendar)) {
+                                if (monthlyBudgetValue <= 0 && selectedRange == TimeRange.MONTH && DateUtils.isThisMonth(currentCalendar)) {
                                     Spacer(modifier = Modifier.height(16.dp))
                                     BudgetNudgeBanner(onSetBudgetClick = onSetBudgetClick)
                                 }
@@ -238,6 +245,17 @@ fun HomeScreen(
                 }
 
                 if (!isSearchActive) {
+                    if (showCopyPrompt != null) {
+                        item {
+                            BudgetCopyBanner(
+                                previousAmount = showCopyPrompt!!,
+                                onCopy = { homeViewModel.copyPreviousMonthBudget() },
+                                onDismiss = { homeViewModel.dismissCopyPrompt() },
+                                onSetNew = onSetBudgetClick
+                            )
+                        }
+                    }
+
                     item {
                         RecurringSection(
                             recurringExpenses = activeRecurringExpenses,
@@ -381,6 +399,25 @@ fun HomeScreen(
             }
         }
 
+        /* FUTURE FEATURE: Ask Cleave AI Sheet
+        if (showAskCleaveSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { 
+                    showAskCleaveSheet = false
+                    homeViewModel.resetAskCleave()
+                },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                containerColor = MaterialTheme.colorScheme.surface,
+                dragHandle = { BottomSheetDefaults.DragHandle() }
+            ) {
+                AskCleaveSheet(
+                    homeViewModel = homeViewModel,
+                    onDismiss = { showAskCleaveSheet = false }
+                )
+            }
+        }
+        */
+
         if (showJoinDialog) {
             JoinGroupDialog(
                 onJoin = { url ->
@@ -448,7 +485,15 @@ fun HomeScreen(
         }
 
         if (fabExpanded) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { fabExpanded = false })
-        Box(modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(16.dp), contentAlignment = Alignment.BottomEnd) { RefinedFab(isExpanded = fabExpanded, onMainFabClick = { HapticUtils.playTick(context); fabExpanded = !fabExpanded }, onManualEntryClick = { HapticUtils.playTick(context); fabExpanded = false; onAddExpenseClick() }, onScanReceiptClick = { HapticUtils.playTick(context); fabExpanded = false; onScanReceiptClick() }) }
+        Box(modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(16.dp), contentAlignment = Alignment.BottomEnd) { 
+            RefinedFab(
+                isExpanded = fabExpanded, 
+                onMainFabClick = { HapticUtils.playTick(context); fabExpanded = !fabExpanded }, 
+                onManualEntryClick = { HapticUtils.playTick(context); fabExpanded = false; onAddExpenseClick() }, 
+                onScanReceiptClick = { HapticUtils.playTick(context); fabExpanded = false; onScanReceiptClick() },
+                onAskClick = { /* FUTURE FEATURE: HapticUtils.playTick(context); fabExpanded = false; showAskCleaveSheet = true */ }
+            ) 
+        }
     }
 }
 
@@ -462,6 +507,7 @@ fun HomeTopBar(
     onProfileClick: () -> Unit,
     isSearchActive: Boolean,
     onSearchClick: () -> Unit,
+    onAskCleaveClick: () -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -493,6 +539,16 @@ fun HomeTopBar(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+                /* FUTURE FEATURE: Ask Cleave entry point
+                IconButton(onClick = onAskCleaveClick) {
+                    Icon(
+                        Icons.Rounded.AutoAwesome, 
+                        null, 
+                        tint = ElectricBlue, 
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                */
                 IconButton(onClick = onSearchClick) {
                     Icon(
                         Icons.Default.Search, 
@@ -573,12 +629,14 @@ fun BalanceSummaryCard(
         ) {
             Column {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                    Text(
-                        text = cardLabel,
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = cardLabel,
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                     
                     if (monthlyBudget != null) {
                         val safeText = CurrencyMasker.formatSmallAmount(animatedSafeToday.toDouble(), isPrivacyMode)
@@ -648,6 +706,54 @@ fun BalanceSummaryCard(
                         val budgetText = CurrencyMasker.formatSmallAmount(monthlyBudget, isPrivacyMode).replace("₹", "")
                         Text("$usagePercent% of ₹$budgetText budget used", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BudgetCopyBanner(
+    previousAmount: Double,
+    onCopy: () -> Unit,
+    onDismiss: () -> Unit,
+    onSetNew: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.History, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("No budget set for this month", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Text("Copy previous limit of ₹${previousAmount.toInt()}?", fontSize = 13.sp, color = Color.Gray)
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onSetNew) {
+                    Text("Set New", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = onCopy,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("Copy August's", fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -810,7 +916,8 @@ fun RefinedFab(
     isExpanded: Boolean,
     onMainFabClick: () -> Unit,
     onManualEntryClick: () -> Unit,
-    onScanReceiptClick: () -> Unit
+    onScanReceiptClick: () -> Unit,
+    onAskClick: () -> Unit
 ) {
     val rotation by animateFloatAsState(if (isExpanded) 45f else 0f, label = "FAB Rotation")
     
@@ -824,6 +931,8 @@ fun RefinedFab(
                 horizontalAlignment = Alignment.End, 
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // FUTURE FEATURE: Ask Cleave entry point
+                // ActionFabItem(label = "Ask Cleave", icon = Icons.Rounded.AutoAwesome, onClick = onAskClick)
                 ActionFabItem(label = "Manual Entry", icon = Icons.Default.Edit, onClick = onManualEntryClick)
                 ActionFabItem(label = "Scan Receipt", icon = Icons.Default.QrCodeScanner, onClick = onScanReceiptClick)
                 Spacer(Modifier.height(8.dp))

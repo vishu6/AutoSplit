@@ -16,10 +16,10 @@ import com.context.data.ExpenseDatabase
 import com.context.utils.BudgetUtils
 import com.context.utils.OnboardingUtils
 import com.context.utils.PermissionUtils
+import dagger.hilt.android.EntryPointAccessors
 import java.text.NumberFormat
-import java.util.Calendar
-import java.util.Currency
-import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.*
 
 class WeeklySummaryWorker(
     context: Context,
@@ -60,8 +60,13 @@ class WeeklySummaryWorker(
         val thisWeekTotal = thisWeekExpenses.sumOf { it.amount }
         val lastWeekTotal = lastWeekExpenses.sumOf { it.amount }
 
-        val isBudgetSet = BudgetUtils.isBudgetSet(applicationContext)
-        val budget = BudgetUtils.getMonthlyBudget(applicationContext)
+        // Use BudgetRepository via Hilt EntryPoint for unified budget state
+        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
+        val entryPoint = EntryPointAccessors.fromApplication(applicationContext, BudgetUtils.BudgetEntryPoint::class.java)
+        val repository = entryPoint.budgetRepository()
+        
+        val budget = repository.getMonthlyBudget(monthKey)
+        val isBudgetSet = budget > 0
         
         val monthStart = Calendar.getInstance().apply {
             set(Calendar.DAY_OF_MONTH, 1)

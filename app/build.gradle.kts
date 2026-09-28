@@ -15,8 +15,8 @@ android {
         applicationId = "com.context.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 62
-        versionName = "1.5.6"
+        versionCode = 64
+        versionName = "1.5.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -112,6 +112,9 @@ dependencies {
 
     // Google ML Kit Text Recognition (Updated for 16KB support)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+
+    // Google AI (Gemini)
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     // CameraX (Updated for 16KB support)
     val cameraxVersion = "1.4.0"

@@ -29,7 +29,6 @@ class ExpenseNotificationListener : NotificationListenerService() {
         "com.google.android.apps.nbu.paisa.user",
         "net.one97.paytm",
         "in.org.npci.upiapp",
-        "com.whatsapp",
         "com.amazon.mShop.android.shopping",
         "in.amazon.mShop.android.shopping",
         "com.mobikwik_new",
@@ -119,19 +118,22 @@ class ExpenseNotificationListener : NotificationListenerService() {
 
     private fun saveExpense(merchant: String, amount: Double, appName: String) {
         serviceScope.launch {
-            val predictedCategory = CategoryEngine.predictCategory(merchant)
+            val db = ExpenseDatabase.getDatabase(applicationContext)
+            val merchantKey = merchant.lowercase().trim()
+            val customRule = db.expenseDao().getMerchantRule(merchantKey)
+            val finalCategoryLabel = customRule?.category ?: CategoryEngine.predictCategory(merchant).label
+
             val expense = Expense(
                 merchant = merchant,
                 amount = amount,
                 timestamp = System.currentTimeMillis(),
-                category = predictedCategory.label,
+                category = finalCategoryLabel,
                 groupId = null,
                 isAuto = true,
                 autoSource = appName
             )
 
             try {
-                val db = ExpenseDatabase.getDatabase(applicationContext)
                 db.expenseDao().insert(expense)
                 
                 // Trigger instant widget update for auto-captured expenses

@@ -1,6 +1,7 @@
 package com.context.di
 
 import android.content.Context
+import com.context.data.BudgetDao
 import com.context.data.ExpenseDao
 import com.context.data.ExpenseDatabase
 import com.context.data.RecurringExpenseDao
@@ -31,5 +32,11 @@ object DatabaseModule {
     @Singleton
     fun provideRecurringExpenseDao(database: ExpenseDatabase): RecurringExpenseDao {
         return database.recurringExpenseDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideBudgetDao(database: ExpenseDatabase): BudgetDao {
+        return database.budgetDao()
     }
 }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.context.data.Category
 import com.context.data.Expense
 import com.context.data.ExpenseDao
+import com.context.data.MerchantCategoryRule
 import com.context.sync.GroupSyncManager
 import com.context.utils.WidgetUpdateHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,6 +33,17 @@ class EditExpenseViewModel @Inject constructor(
     fun updateExpense(expense: Expense, oldGroupId: Int?) {
         viewModelScope.launch {
             expenseDao.update(expense)
+            
+            // Smart Learning: Save merchant category preference
+            val merchantKey = expense.merchant.lowercase().trim()
+            if (merchantKey.isNotEmpty() && merchantKey != "unknown merchant") {
+                expenseDao.insertMerchantRule(
+                    MerchantCategoryRule(
+                        merchantKey = merchantKey,
+                        category = expense.category
+                    )
+                )
+            }
             
             // Trigger instant widget update
             WidgetUpdateHelper.updateWidget(context)

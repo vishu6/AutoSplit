@@ -1,21 +1,16 @@
 package com.context.ui
 
 import android.content.Context
-import com.context.data.Category
-import com.context.data.Expense
-import com.context.data.ExpenseDao
-import com.context.data.Group
-import com.context.data.GroupMember
-import com.context.data.RecurringExpense
-import com.context.data.RecurringExpenseDao
+import androidx.sqlite.db.SupportSQLiteQuery
+import com.context.data.*
 import com.context.sync.GroupSyncManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * A fake implementation of the ExpenseDao and RecurringExpenseDao for use in Previews.
+ * A fake implementation of the ExpenseDao, RecurringExpenseDao, and BudgetDao for use in Previews.
  */
-class FakeExpenseDao : ExpenseDao, RecurringExpenseDao {
+class FakeExpenseDao : ExpenseDao, RecurringExpenseDao, BudgetDao {
     override fun getAllExpenses(): Flow<List<Expense>> = MutableStateFlow(emptyList())
     override suspend fun getExpenseById(id: Int): Expense? = null
     override suspend fun getExpenseByRemoteId(remoteId: String): Expense? = null
@@ -28,11 +23,13 @@ class FakeExpenseDao : ExpenseDao, RecurringExpenseDao {
     
     override suspend fun insert(expense: Expense): Long = 0L
     override suspend fun insertAll(expenses: List<Expense>) {}
+    override suspend fun update(expense: Expense) {}
+    override suspend fun delete(expense: Expense) {}
+    
     override suspend fun insertGroup(group: Group): Long = 0L
     override suspend fun updateGroup(group: Group) {}
-    override suspend fun delete(expense: Expense) {}
     override suspend fun deleteGroup(group: Group) {}
-    override suspend fun update(expense: Expense) {}
+
     override suspend fun recalculateGroupTotal(groupId: Int) {}
     override suspend fun checkDuplicate(amount: Double, timeThreshold: Long): Int = 0
     override suspend fun checkDuplicateStrict(merchant: String, amount: Double, startTime: Long, endTime: Long): Int = 0
@@ -59,6 +56,15 @@ class FakeExpenseDao : ExpenseDao, RecurringExpenseDao {
     override fun getAllCategories(): Flow<List<Category>> = MutableStateFlow(emptyList())
     override suspend fun deleteCategory(category: Category) {}
 
+    // Merchant Custom Rules Methods
+    override suspend fun insertMerchantRule(rule: MerchantCategoryRule) {}
+    override suspend fun getMerchantRule(merchantKey: String): MerchantCategoryRule? = null
+
+    // Raw Query Methods (For Ask Cleave AI) - Using fully qualified parameter type to resolve compiler errors
+    override suspend fun executeRawQuery(query: SupportSQLiteQuery): List<Long> = emptyList()
+    override suspend fun executeRawQueryForDouble(query: SupportSQLiteQuery): Double? = 0.0
+    override suspend fun executeRawQueryForExpenses(query: SupportSQLiteQuery): List<Expense> = emptyList()
+
     // Recurring Expense Methods
     override suspend fun insert(recurringExpense: RecurringExpense): Long = 0L
     override suspend fun update(recurringExpense: RecurringExpense) {}
@@ -68,6 +74,13 @@ class FakeExpenseDao : ExpenseDao, RecurringExpenseDao {
     override suspend fun getRecurringExpenseByMerchant(merchant: String): RecurringExpense? = null
     override suspend fun getAllRecurringExpensesSync(): List<RecurringExpense> = emptyList()
     override suspend fun suppressRecurringExpense(id: Int) {}
+
+    // BudgetDao Methods
+    override suspend fun getMonthlyBudget(monthKey: String): MonthlyBudget? = null
+    override suspend fun insertMonthlyBudget(budget: MonthlyBudget) {}
+    override suspend fun getCategoryLimitsForMonth(monthKey: String): List<MonthlyCategoryLimit> = emptyList()
+    override suspend fun insertCategoryLimits(limits: List<MonthlyCategoryLimit>) {}
+    override suspend fun deleteCategoryLimitsForMonth(monthKey: String) {}
 }
 
 /**
@@ -77,6 +90,15 @@ object FakeHomeViewModelFactory {
     fun create(context: Context): HomeViewModel {
         val fakeDao = FakeExpenseDao()
         val dummySyncManager = GroupSyncManager(fakeDao, context)
-        return HomeViewModel(fakeDao, fakeDao, dummySyncManager, context)
+        val askCleaveRepository = AskCleaveRepository(fakeDao)
+        val budgetRepository = BudgetRepository(fakeDao, context)
+        return HomeViewModel(
+            expenseDao = fakeDao, 
+            recurringExpenseDao = fakeDao, 
+            askCleaveRepository = askCleaveRepository,
+            budgetRepository = budgetRepository,
+            groupSyncManager = dummySyncManager,
+            context = context
+        )
     }
 }

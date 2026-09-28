@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.*
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -158,13 +159,30 @@ interface ExpenseDao {
 
     @Delete
     suspend fun deleteCategory(category: Category)
+
+    // Merchant Custom Rules Methods
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMerchantRule(rule: MerchantCategoryRule)
+
+    @Query("SELECT * FROM merchant_category_rules WHERE merchantKey = :merchantKey")
+    suspend fun getMerchantRule(merchantKey: String): MerchantCategoryRule?
+
+    @RawQuery
+    suspend fun executeRawQuery(query: SupportSQLiteQuery): List<Long>
+
+    @RawQuery
+    suspend fun executeRawQueryForDouble(query: SupportSQLiteQuery): Double?
+
+    @RawQuery
+    suspend fun executeRawQueryForExpenses(query: SupportSQLiteQuery): List<Expense>
 }
 
 
-@Database(entities = [Expense::class, Group::class, GroupMember::class, Category::class, RecurringExpense::class], version = 14)
+@Database(entities = [Expense::class, Group::class, GroupMember::class, Category::class, RecurringExpense::class, MonthlyBudget::class, MonthlyCategoryLimit::class, MerchantCategoryRule::class], version = 16)
 abstract class ExpenseDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun recurringExpenseDao(): RecurringExpenseDao
+    abstract fun budgetDao(): BudgetDao
 
     companion object {
         @Volatile private var INSTANCE: ExpenseDatabase? = null
@@ -181,6 +199,19 @@ abstract class ExpenseDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `monthly_budgets` (`monthKey` TEXT NOT NULL, `totalLimit` REAL NOT NULL, PRIMARY KEY(`monthKey`))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS `monthly_category_limits` (`monthKey` TEXT NOT NULL, `category` TEXT NOT NULL, `limit` REAL NOT NULL, PRIMARY KEY(`monthKey`, `category`))")
+            }
+        }
+
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `merchant_category_rules` (`merchantKey` TEXT NOT NULL, `category` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`merchantKey`))")
+            }
+        }
+
         fun getDatabase(context: Context): ExpenseDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -190,7 +221,9 @@ abstract class ExpenseDatabase : RoomDatabase() {
                 )
                 .addMigrations(
                     MIGRATION_12_13,
-                    MIGRATION_13_14
+                    MIGRATION_13_14,
+                    MIGRATION_14_15,
+                    MIGRATION_15_16
                 )
                 .fallbackToDestructiveMigration()
                 .build()

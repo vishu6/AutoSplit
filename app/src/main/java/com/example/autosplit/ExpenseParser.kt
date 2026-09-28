@@ -26,10 +26,17 @@ object ExpenseParser {
     }
 
     private fun isValidTransaction(message: String): Boolean {
-        val lowerMsg = message.lowercase()
+        // 🚨 BLOCKLIST 0: Future/Pending Payments & Reminders (Reject scheduled/upcoming/reminders)
+        val futurePayment = Regex(
+            """\b(will be debited|scheduled|due on|upcoming|reminder|autopay due|mandate|ensure balance)\b""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(message)
+
+        if (futurePayment) return false
 
         // 🚨 BLOCKLIST 1: Marketing/Spam
         val spamKeywords = listOf("recharge now", "click link", "register now", "subscribe", "win", "lottery", "discount", "http")
+        val lowerMsg = message.lowercase()
         if (spamKeywords.any { lowerMsg.contains(it) }) return false
 
         // 🚨 BLOCKLIST 2: Credit Card Statements
@@ -44,59 +51,37 @@ object ExpenseParser {
         if (infoKeywords.any { lowerMsg.contains(it) } && 
             !lowerMsg.contains("debited") && !lowerMsg.contains("spent") && !lowerMsg.contains("paid")) return false
 
-        // ✅ REQUIREMENT: Must contain an Expense "Action"
-        val hasExpenseVerb = listOf("debited", "spent", "paid", "sent", "withdrawal", "purchase").any { lowerMsg.contains(it) }
-        val hasTxnWithAmount = (lowerMsg.contains("txn") || lowerMsg.contains("transaction")) && 
-                               (lowerMsg.contains("₹") || lowerMsg.contains("inr") || lowerMsg.contains("rs."))
-        
-        return hasExpenseVerb || hasTxnWithAmount
+        // 🚨 INCOME / REFUNDS SHIELD: Reject credited, refund, reversed, cashback, received so income/refunds do not become expenses
+        val incomeVerbs = listOf("credited", "refund", "reversed", "cashback", "received", "cr")
+        if (incomeVerbs.any { verb -> Regex("\\b$verb\\b", RegexOption.IGNORE_CASE).containsMatchIn(message) }) {
+            return false
+        }
+
+        // ✅ REQUIREMENT 1: Must contain an explicit outgoing/debit action verb or signal with word boundaries
+        val debitVerbs = listOf("debited", "spent", "paid", "sent", "withdrawal", "purchase", "dr")
+        val hasExpenseVerb = debitVerbs.any { verb -> Regex("\\b$verb\\b", RegexOption.IGNORE_CASE).containsMatchIn(message) }
+        if (!hasExpenseVerb) return false
+
+        return true
     }
 
     private fun findAmount(text: String): Double? {
-        // Step 1: Strip commas globally first for 100% accurate greedy matching
-        val cleaned = text.replace(",", "")
-        val lowerCleaned = cleaned.lowercase()
-
-        // Step 2: Priority Pass — Specifically look for DEBIT context if both keywords exist
-        // Added 'dr' and 'cr' support to catch Axis/Bank abbreviations
-        val hasDebit = lowerCleaned.contains("debited") || lowerCleaned.contains(" dr") || lowerCleaned.contains(" dr.")
-        val hasCredit = lowerCleaned.contains("credited") || lowerCleaned.contains(" cr") || lowerCleaned.contains(" cr.")
-        
-        if (hasDebit && hasCredit) {
-            val debitPattern = Regex("(?i)(?:inr|rs\\.?|₹)\\s*(?:dr\\.?)?\\s*(\\d+(?:\\.\\d{1,2})?)\\s*(?:debited|dr)")
-            debitPattern.find(cleaned)?.let {
-                val amount = it.groupValues[1].toDoubleOrNull()
-                if (amount != null && isValidAmount(amount, it.groupValues[1])) return amount
-            }
-        }
-
-        // Step 3: Priority-ordered patterns (Specific to General)
+        // Step 1: Priority-ordered currency-linked patterns
         val patterns = listOf(
-            // 1a: Explicit Debit Marker (Highest Priority)
-            Regex("(?i)(?:inr|rs\\.?|₹)\\s*(?:dr\\.?)\\s*(\\d+(?:\\.\\d{1,2})?)"),
-            
-            // 1b: Neutral/Amount Markers (amt, total, or just currency)
-            Regex("(?i)(?:inr|rs\\.?|₹)\\s*(?:amt\\.?|total)?\\s*(\\d+(?:\\.\\d{1,2})?)"),
-            
-            // 1c: Reverse format (62734.04 INR)
-            Regex("(?i)(\\d+(?:\\.\\d{1,2})?)\\s*(?:inr|rs\\.?|₹)"),
-            
-            // 1d: Action-based (debited 1483.00)
-            Regex("(?i)(?:debited|spent|paid|sent)\\s*(?:inr|rs\\.?|₹)?\\s*(\\d+(?:\\.\\d{1,2})?)"),
-            
-            // 1e: Generic label (amount of 1483)
-            Regex("(?i)amount\\s*(?:of)?\\s*(?:inr|rs\\.?|₹)?\\s*(\\d+(?:\\.\\d{1,2})?)")
+            Regex("(?i)(?:₹|inr|rs\\.?)\\s*([0-9]+(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?)"),
+            Regex("(?i)([0-9]+(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?)\\s*(?:inr|rs\\.?|₹)")
         )
 
         for (pattern in patterns) {
-            val match = pattern.find(cleaned)
-            val amountStr = match?.groupValues?.get(1) ?: continue
-            val amount = amountStr.toDoubleOrNull() ?: continue
+            for (match in pattern.findAll(text)) {
+                val amountStrWithCommas = match.groupValues[1]
+                val amountStr = amountStrWithCommas.replace(",", "")
+                val amount = amountStr.toDoubleOrNull() ?: continue
 
-            // Step 4: Sanity check to avoid years, phone numbers, etc.
-            if (isValidAmount(amount, amountStr)) {
-                Log.d(TAG, "✅ Amount parsed: $amount from pattern: ${pattern.pattern}")
-                return amount
+                if (isValidAmount(amount, amountStr)) {
+                    Log.d(TAG, "✅ Amount parsed: $amount from pattern: ${pattern.pattern}")
+                    return amount
+                }
             }
         }
 

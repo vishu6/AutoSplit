@@ -3,11 +3,7 @@ package com.context.ui
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.context.data.Category
-import com.context.data.Expense
-import com.context.data.ExpenseDao
-import com.context.data.RecurringExpense
-import com.context.data.RecurringExpenseDao
+import com.context.data.*
 import com.context.sync.GroupSyncManager
 import com.context.utils.*
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +20,8 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val recurringExpenseDao: RecurringExpenseDao,
+    private val askCleaveRepository: AskCleaveRepository,
+    private val budgetRepository: BudgetRepository,
     val groupSyncManager: GroupSyncManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -83,12 +81,25 @@ class HomeViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow<String?>(null)
     val selectedCategory = _selectedCategory.asStateFlow()
 
-    // Category Limits state
+    // Monthly Budget State (Dynamic)
+    private val _monthlyBudgetValue = MutableStateFlow(0.0)
+    val monthlyBudgetValue = _monthlyBudgetValue.asStateFlow()
+
     private val _categoryLimits = MutableStateFlow<Map<String, Double>>(emptyMap())
     val categoryLimits = _categoryLimits.asStateFlow()
 
+    private val _isBudgetCustom = MutableStateFlow(false)
+    val isBudgetCustom = _isBudgetCustom.asStateFlow()
+
+    private val _showCopyPrompt = MutableStateFlow<Double?>(null)
+    val showCopyPrompt = _showCopyPrompt.asStateFlow()
+
+    // Ask Cleave AI state
+    private val _askCleaveResult = MutableStateFlow<AskCleaveResult>(AskCleaveResult.Idle)
+    val askCleaveResult = _askCleaveResult.asStateFlow()
+
     init {
-        refreshBudgetLimits()
+        refreshBudgetState()
         seedCategoriesIfEmpty()
     }
 
@@ -109,8 +120,58 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun refreshBudgetLimits() {
-        _categoryLimits.value = BudgetUtils.getCategoryLimits(context)
+    /**
+     * Refreshes budget based on current selected month
+     */
+    fun refreshBudgetState() {
+        viewModelScope.launch {
+            val monthKey = getMonthKey(_currentCalendar.value)
+            
+            // 1. Get total budget (Waterfall logic)
+            _monthlyBudgetValue.value = budgetRepository.getMonthlyBudget(monthKey)
+            
+            // 2. Get category limits (Waterfall logic)
+            _categoryLimits.value = budgetRepository.getCategoryLimits(monthKey)
+            
+            // 3. Update "Custom" badge status
+            _isBudgetCustom.value = budgetRepository.hasCustomBudget(monthKey)
+
+            // 4. Handle "No Budget" prompt logic
+            if (!_isBudgetCustom.value && _selectedTimeRange.value == TimeRange.MONTH) {
+                val prevCal = _currentCalendar.value.clone() as Calendar
+                prevCal.add(Calendar.MONTH, -1)
+                val prevMonthKey = getMonthKey(prevCal)
+                val prevBudget = budgetRepository.getMonthlyBudget(prevMonthKey)
+                
+                if (prevBudget > 0) {
+                    _showCopyPrompt.value = prevBudget
+                } else {
+                    _showCopyPrompt.value = null
+                }
+            } else {
+                _showCopyPrompt.value = null
+            }
+        }
+    }
+
+    fun copyPreviousMonthBudget() {
+        viewModelScope.launch {
+            val currentMonthKey = getMonthKey(_currentCalendar.value)
+            val prevCal = _currentCalendar.value.clone() as Calendar
+            prevCal.add(Calendar.MONTH, -1)
+            val prevMonthKey = getMonthKey(prevCal)
+            
+            budgetRepository.copyBudgetFromMonth(prevMonthKey, currentMonthKey)
+            refreshBudgetState()
+        }
+    }
+
+    fun dismissCopyPrompt() {
+        _showCopyPrompt.value = null
+    }
+
+    private fun getMonthKey(cal: Calendar): String {
+        return String.format(Locale.US, "%d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -223,6 +284,17 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    fun askCleave(query: String) {
+        viewModelScope.launch {
+            _askCleaveResult.value = AskCleaveResult.Loading
+            _askCleaveResult.value = askCleaveRepository.processQuery(query)
+        }
+    }
+
+    fun resetAskCleave() {
+        _askCleaveResult.value = AskCleaveResult.Idle
+    }
+
     fun onTimeRangeSelected(range: TimeRange) {
         _selectedTimeRange.value = range
         if (range != TimeRange.CUSTOM) {
@@ -230,6 +302,7 @@ class HomeViewModel @Inject constructor(
             _customDateRange.value = null
         }
         _selectedCategory.value = null
+        refreshBudgetState()
     }
 
     fun onCustomDateRangeSelected(start: Long, end: Long) {
@@ -247,6 +320,7 @@ class HomeViewModel @Inject constructor(
             else -> { }
         }
         _currentCalendar.value = newCal
+        refreshBudgetState()
     }
 
     fun onPreviousPeriod() {
@@ -259,6 +333,7 @@ class HomeViewModel @Inject constructor(
             else -> { }
         }
         _currentCalendar.value = newCal
+        refreshBudgetState()
     }
 
     fun onSearchQueryChanged(query: String) {
@@ -298,6 +373,7 @@ class HomeViewModel @Inject constructor(
         _selectedSortOrder.value = SortOrder.NEWEST
         _searchQuery.value = ""
         _isSearchActive.value = false
+        refreshBudgetState()
     }
 
     fun selectCategory(category: String?) {

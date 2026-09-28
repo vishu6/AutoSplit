@@ -1,15 +1,10 @@
 package com.context.ui
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,36 +13,32 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.context.data.Category
 import com.context.ui.theme.CategoryStyling
-import com.context.ui.theme.ContextTheme
 import com.context.ui.theme.ElectricBlue
 import com.context.ui.theme.FintechRed
 import com.context.utils.BudgetUtils
 import com.context.utils.HapticUtils
 import com.context.utils.LocalToaster
+import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.abs
 
@@ -55,47 +46,40 @@ import kotlin.math.abs
 @Composable
 fun BudgetSetupScreen(
     onBack: () -> Unit,
-    categoryViewModel: CategoryViewModel = viewModel()
+    categoryViewModel: CategoryViewModel = hiltViewModel(),
+    budgetViewModel: BudgetViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val scrollState = rememberScrollState()
 
+    // State from ViewModel
+    val selectedCalendar by budgetViewModel.selectedCalendar.collectAsState()
+    val monthlyBudgetValue by budgetViewModel.monthlyBudgetValue.collectAsState()
+    val categoryLimits by budgetViewModel.categoryLimits.collectAsState()
+    val isCustom by budgetViewModel.isCustom.collectAsState()
+
     // Dynamic Categories from DB
     val dbCategories by categoryViewModel.allCategories.collectAsState(initial = emptyList())
-    val categoryMap by remember(dbCategories) { derivedStateOf { dbCategories.associateBy { it.name } } }
     
-    var monthlyBudgetStr by remember { mutableStateOf(BudgetUtils.getMonthlyBudget(context).let { if (it > 0) it.toInt().toString() else "" }) }
-    
-    // We use a local state map to track edits before saving
-    val categoryLimits = remember { mutableStateMapOf<String, String>() }
-    
-    // Sync local state when categories or existing limits are loaded
-    LaunchedEffect(dbCategories) {
-        val initialLimits = BudgetUtils.getCategoryLimits(context)
-        dbCategories.forEach { cat ->
-            if (!categoryLimits.containsKey(cat.name)) {
-                categoryLimits[cat.name] = initialLimits[cat.name]?.let { if (it > 0) it.toInt().toString() else "" } ?: ""
-            }
-        }
-    }
-
     var lastMonthTotals by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
     var currentMonthTotals by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
     
-    LaunchedEffect(Unit) {
+    LaunchedEffect(selectedCalendar) {
         lastMonthTotals = BudgetUtils.getCategoryTotalsForPeriod(context, isCurrentMonth = false)
         currentMonthTotals = BudgetUtils.getCategoryTotalsForPeriod(context, isCurrentMonth = true)
     }
 
-    val totalMonthlyBudget = monthlyBudgetStr.toDoubleOrNull() ?: 0.0
+    val totalMonthlyBudget = monthlyBudgetValue.toDoubleOrNull() ?: 0.0
     val totalAllocated = categoryLimits.values.sumOf { it.toDoubleOrNull() ?: 0.0 }
     val remainingToAllocate = totalMonthlyBudget - totalAllocated
     val isOverAllocated = totalMonthlyBudget > 0 && remainingToAllocate < 0
 
-    // Smart Sorting: Custom logic to prioritize active categories
-    val sortedCategories = remember(dbCategories, currentMonthTotals, categoryLimits.size) {
-        dbCategories.sortedByDescending { (currentMonthTotals[it.name] ?: 0.0) + (if (categoryLimits[it.name]?.isNotEmpty() == true) 1000000.0 else 0.0) }
+    val monthNameFull = remember(selectedCalendar) {
+        SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(selectedCalendar.time)
+    }
+    val currentMonthName = remember(selectedCalendar) {
+        SimpleDateFormat("MMMM", Locale.getDefault()).format(selectedCalendar.time)
     }
 
     Scaffold(
@@ -115,51 +99,64 @@ fun BudgetSetupScreen(
                 shadowElevation = 12.dp,
                 modifier = Modifier.navigationBarsPadding()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (remainingToAllocate >= 0) "Left to Plan" else "Over Budget",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (isOverAllocated) FintechRed else Color.Gray
-                        )
-                        Text(
-                            text = "₹${String.format(Locale.getDefault(), "%,.0f", abs(remainingToAllocate))}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isOverAllocated) FintechRed else MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (remainingToAllocate >= 0) "Left to Plan" else "Over Budget",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isOverAllocated) FintechRed else Color.Gray
+                            )
+                            Text(
+                                text = "₹${String.format(Locale.getDefault(), "%,.0f", abs(remainingToAllocate))}",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isOverAllocated) FintechRed else MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Button(
+                            onClick = {
+                                budgetViewModel.saveForMonthOnly {
+                                    HapticUtils.playDoubleTick(context)
+                                    toaster.show("Saved for $currentMonthName only")
+                                    onBack()
+                                }
+                            },
+                            modifier = Modifier.height(56.dp).weight(1.2f),
+                            shape = RoundedCornerShape(16.dp),
+                            enabled = totalMonthlyBudget > 0,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isOverAllocated) FintechRed else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("This Month Only", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = 13.sp)
+                        }
                     }
                     
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Button(
+                    Spacer(Modifier.height(12.dp))
+                    
+                    OutlinedButton(
                         onClick = {
-                            val budgetVal = monthlyBudgetStr.toDoubleOrNull() ?: 0.0
-                            BudgetUtils.setMonthlyBudget(context, budgetVal)
-                            
-                            val limitsMap = categoryLimits.mapValues { it.value.toDoubleOrNull() ?: 0.0 }
-                            BudgetUtils.setCategoryLimits(context, limitsMap)
-                            
-                            HapticUtils.playDoubleTick(context)
-                            toaster.show("Budget saved successfully!")
-                            onBack()
+                            budgetViewModel.saveAsGlobalDefault(context) {
+                                HapticUtils.playDoubleTick(context)
+                                toaster.show("Saved as Global Default")
+                                onBack()
+                            }
                         },
-                        modifier = Modifier.height(56.dp).widthIn(min = 120.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        enabled = totalMonthlyBudget > 0,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isOverAllocated) FintechRed else MaterialTheme.colorScheme.primary
-                        )
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                     ) {
-                        Text("Save Plan", fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text("Save as Default for All Months", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -172,6 +169,41 @@ fun BudgetSetupScreen(
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
         ) {
+            // Month Selector
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = { budgetViewModel.onMonthChanged(false) }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null)
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = monthNameFull,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black
+                    )
+                    Surface(
+                        color = if (isCustom) ElectricBlue.copy(alpha = 0.1f) else Color.Gray.copy(alpha = 0.1f),
+                        shape = CircleShape
+                    ) {
+                        Text(
+                            text = if (isCustom) "Custom Month Budget" else "Global Default",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isCustom) ElectricBlue else Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                IconButton(onClick = { budgetViewModel.onMonthChanged(true) }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             
             // Monthly Goal Card
@@ -190,8 +222,8 @@ fun BudgetSetupScreen(
                     )
                     
                     OutlinedTextField(
-                        value = monthlyBudgetStr,
-                        onValueChange = { if (it.all { c -> c.isDigit() }) monthlyBudgetStr = it },
+                        value = monthlyBudgetValue,
+                        onValueChange = { budgetViewModel.onTotalBudgetChange(it) },
                         textStyle = inputStyle,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
@@ -201,13 +233,7 @@ fun BudgetSetupScreen(
                                 Spacer(modifier = Modifier.width(16.dp))
                             }
                         },
-                        placeholder = { 
-                            Text(
-                                text = "0", 
-                                color = Color.LightGray,
-                                style = inputStyle
-                            ) 
-                        },
+                        placeholder = { Text("0", color = Color.LightGray, style = inputStyle) },
                         shape = RoundedCornerShape(20.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -220,21 +246,6 @@ fun BudgetSetupScreen(
                 }
             }
 
-            // Allocation Donut Chart
-            if (totalAllocated > 0) {
-                Spacer(modifier = Modifier.height(32.dp))
-                Box(modifier = Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-                    AllocationDonutChart(
-                        limits = categoryLimits.mapValues { it.value.toDoubleOrNull() ?: 0.0 },
-                        categoryMap = categoryMap
-                    )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PLANNED", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Text("₹${totalAllocated.toInt()}", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(32.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -244,10 +255,10 @@ fun BudgetSetupScreen(
                         onClick = {
                             HapticUtils.playDoubleTick(context)
                             lastMonthTotals.forEach { (cat, total) ->
-                                if (total > 0) categoryLimits[cat] = total.toInt().toString()
+                                if (total > 0) budgetViewModel.onCategoryLimitChange(cat, total.toInt().toString())
                             }
                             val totalLastMonth = lastMonthTotals.values.sum()
-                            monthlyBudgetStr = totalLastMonth.toInt().toString()
+                            budgetViewModel.onTotalBudgetChange(totalLastMonth.toInt().toString())
                         },
                         colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                     ) {
@@ -265,12 +276,12 @@ fun BudgetSetupScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Dynamic Category Items
-            sortedCategories.forEach { category ->
+            dbCategories.forEach { category ->
                 CategoryLimitCard(
                     categoryName = category.name,
                     categoryObj = category,
                     limitStr = categoryLimits[category.name] ?: "",
-                    onLimitChange = { categoryLimits[category.name] = it },
+                    onLimitChange = { newValue -> budgetViewModel.onCategoryLimitChange(category.name, newValue) },
                     totalMonthlyBudget = totalMonthlyBudget,
                     lastMonthSpend = lastMonthTotals[category.name] ?: 0.0,
                     currentMonthSpend = currentMonthTotals[category.name] ?: 0.0
@@ -278,43 +289,6 @@ fun BudgetSetupScreen(
             }
             
             Spacer(modifier = Modifier.height(120.dp))
-        }
-    }
-}
-
-@Composable
-fun AllocationDonutChart(
-    limits: Map<String, Double>,
-    categoryMap: Map<String, Category>
-) {
-    val total = limits.values.sum()
-    if (total <= 0) return
-
-    Canvas(modifier = Modifier.size(140.dp)) {
-        var startAngle = -90f
-        val strokeWidth = 16.dp.toPx()
-        
-        limits.forEach { (categoryName, amount) ->
-            if (amount > 0) {
-                val sweepAngle = (amount / total).toFloat() * 360f
-                val catObj = categoryMap[categoryName]
-                val color = CategoryStyling.getStyle(
-                    categoryName = categoryName,
-                    customColorHex = catObj?.colorHex,
-                    customIconName = catObj?.iconName
-                ).boldColor
-                
-                drawArc(
-                    color = color,
-                    startAngle = startAngle,
-                    sweepAngle = sweepAngle,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                    size = Size(size.width - strokeWidth, size.height - strokeWidth),
-                    topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
-                )
-                startAngle += sweepAngle
-            }
         }
     }
 }
@@ -395,8 +369,8 @@ fun CategoryLimitCard(
                     
                     BasicTextField(
                         value = if (limitValue > 0) "₹${limitValue.toInt()}" else "₹0",
-                        onValueChange = { 
-                            val digits = it.filter { c -> c.isDigit() }
+                        onValueChange = { input ->
+                            val digits = input.filter { c -> c.isDigit() }
                             onLimitChange(digits)
                         },
                         textStyle = TextStyle(
